@@ -1,0 +1,5 @@
+.venv/
+.env
+faiss_index_job/
+Job PDFs/
+Job Text Files/
