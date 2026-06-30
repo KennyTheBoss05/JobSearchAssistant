@@ -42,6 +42,23 @@ RAG-based job-application assistant. A Streamlit app that tailors resumes & cove
 - **RAG hygiene:** keep the vector store (`faiss_index_job/`) separate from source documents. Gitignore the indexed data and the generated `*_text.txt` state if a git repo is initialized.
 - Tunable globals live near the bottom of [JobBot.py](JobBot.py) (`Model`, `temperature0/1`, `score_threshold0/1`, `k`, `chunk_size`, `chunk_overlap`, `max_tokens`).
 
+## Job-application skill suite (project-native, v1)
+
+Three project-local skills automate job applications, reusing JobBot's *thinking* (ported
+prompts) but **not its code or OpenAI key** — Claude does all reasoning. Deliberately kept
+in this repo (not promoted to the brain). At runtime, data + config live in `job_engine/`
+(gitignored). The canonical defaults (config + ported prompts) are bundled in the skill seed
+[job_engine_seed/](.claude/skills/job-profile-setup/assets/job_engine_seed/); `job-profile-setup`'s
+[bootstrap.py](.claude/skills/job-profile-setup/scripts/bootstrap.py) recreates `job_engine/` from
+the seed on first run (never overwriting tuned files), so the suite is self-contained and portable.
+
+- **[job-profile-setup](.claude/skills/job-profile-setup/SKILL.md)** — run once: interview + doc ingestion → `profile.yaml`, `evidence.md`, `.docx` masters, LinkedIn login. Cross-platform.
+- **[apply-to-jobs](.claude/skills/apply-to-jobs/SKILL.md)** — autonomous applier (v1 = LinkedIn Easy Apply). Orchestrator drives the browser ([linkedin.py](.claude/skills/apply-to-jobs/scripts/linkedin.py)); subagents (Haiku=scrape, Sonnet=fit/answers, Opus=resume) do text reasoning. `--mode review|auto`. v2 (external ATS + site rotation) pending.
+- **[tune-job-engine](.claude/skills/tune-job-engine/SKILL.md)** — edit tailoring/answer/selection/pacing behavior via the runtime `job_engine/engine_config.yaml` + `job_engine/prompts/` (defaults: the seed above).
+
+Hard rule across all three: **never fabricate** — tailoring/answers only reframe true facts
+from resume + `evidence.md`. Runtime deps (`playwright`, `python-docx`) install during setup.
+
 ## Tools wired into this repo
 
 Copies of brain assets live in [.claude/](.claude/) (snapshot — re-run `/wire-up` to resync):

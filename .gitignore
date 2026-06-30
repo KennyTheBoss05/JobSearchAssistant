@@ -3,3 +3,10 @@
 faiss_index_job/
 Job PDFs/
 Job Text Files/
+
+# job_engine/ is runtime + personal data, recreated from the skill's bundled
+# seed (.claude/skills/job-profile-setup/assets/job_engine_seed/) via bootstrap.py.
+# The tracked defaults live in that seed, so the whole folder is ignored here.
+job_engine/
+
+__pycache__/
