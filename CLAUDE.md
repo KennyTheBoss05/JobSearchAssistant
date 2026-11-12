@@ -22,7 +22,8 @@ RAG-based job-application assistant. A Streamlit app that tailors resumes & cove
 
 ## Environment gotchas
 
-- **Python** via `anaconda3` (`C:\Users\Kevin\anaconda3\python.exe`) — pip works. This repo has its own venv; activate/use `.venv\Scripts\python.exe` for isolation.
+- **Python:** anaconda3 was uninstalled (2026-11). `.venv` is now built by **uv** (`~\.local\bin\uv.exe`, CPython 3.11): rebuild with `uv venv --python 3.11 --clear .venv` + `uv pip install --python .venv\Scripts\python.exe -r requirements.txt playwright python-docx pyyaml` + `.venv\Scripts\python.exe -m playwright install chromium`. No Python on PATH — always call `.venv\Scripts\python.exe`.
+- **docx → PDF:** use Word COM automation (Word is installed; LibreOffice isn't).
 - **PowerShell exec-policy** (`RemoteSigned`) blocks `.ps1` wrappers — if shell-scripting any Node tooling, call `npm.cmd` / `npx.cmd` directly. (Not currently needed — pure Python project.)
 
 ## Workflow (from brain)

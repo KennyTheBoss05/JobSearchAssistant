@@ -68,16 +68,19 @@ SEL = {
     "logged_in": "div.scaffold-layout, .global-nav__me, img.global-nav__me-photo",
     "login_user": "input#username",
     "login_pass": "input#password",
-    "easy_apply_btn": "button.jobs-apply-button, button[aria-label*='Easy Apply']",
-    "modal": "div.jobs-easy-apply-modal",
-    "modal_next": "button[aria-label='Continue to next step']",
-    "modal_review": "button[aria-label='Review your application']",
-    "modal_submit": "button[aria-label='Submit application']",
-    "resume_upload": "input[type='file'][name='file'], input[type='file']",
-    "form_group": "div.jobs-easy-apply-form-section__grouping, div.fb-dash-form-element",
-    "job_card": "div.job-card-container, li.jobs-search-results__list-item",
-    "job_title_panel": "h1.job-details-jobs-unified-top-card__job-title, h1",
-    "job_desc_panel": "div#job-details, article.jobs-description__container",
+    # Easy Apply trigger is now an <a aria-label="Easy Apply to this job"> in LinkedIn's
+    # current UI (was button.jobs-apply-button). Keep button variants as fallbacks.
+    "easy_apply_btn": "a[aria-label*='Easy Apply'], button[aria-label*='Easy Apply'], button.jobs-apply-button",
+    # 2026-11: the modal is a native <dialog open> with hashed classes (no role attr, no
+    # artdeco classes). Fields are found by tagging controls in _read_groups, buttons by
+    # accessible name (scoped to the modal — page carousels also have a 'Next').
+    "modal": "dialog[open], div.jobs-easy-apply-modal, [role='dialog']",
+    # Search-result cards: data-occludable-job-id is the stable, complete set (25 vs 7).
+    "job_card": "li[data-occludable-job-id], div.job-card-container, li.jobs-search-results__list-item",
+    # 2026-11: /jobs/search/ redirects to /jobs/search-results/ (hashed classes, no
+    # data-occludable-job-id). Cards carry componentkey="job-card-component-ref-<id>".
+    "job_card_id": "[componentkey^='job-card-component-ref-']",
+    "job_desc_panel": "div#job-details, article.jobs-description__container, div.jobs-description__content, [componentkey^='JobDetails_AboutTheJob_'], [data-testid='expandable-text-box']",
 }
 
 def human_delay():
@@ -104,17 +107,39 @@ def launch(p):
             pass  # fall back to bundled chromium
     return p.chromium.launch_persistent_context(**kwargs)
 
+def _has_li_at(ctx) -> bool:
+    """Authoritative, navigation-free login check: LinkedIn sets the `li_at` auth
+    cookie only on a fully authenticated session. Polling this during login avoids
+    yanking the page around mid-flow (critical for Microsoft/Google SSO logins)."""
+    try:
+        for c in ctx.cookies():
+            if c.get("name") == "li_at" and c.get("value"):
+                return True
+    except Exception:
+        pass
+    return False
+
 def is_logged_in(page) -> bool:
+    # Cookie check first — cheap and doesn't disturb any in-progress navigation.
+    try:
+        if _has_li_at(page.context):
+            return True
+    except Exception:
+        pass
     try:
         page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded", timeout=30000)
-    except PWTimeout:
+    except Exception:
+        # PWTimeout, or navigation interrupted by an SSO redirect — fall through and
+        # judge by the resulting URL / cookie rather than crashing.
         pass
+    if _has_li_at(page.context):
+        return True
     if "login" in page.url or "checkpoint" in page.url:
         return False
     try:
         page.wait_for_selector(SEL["logged_in"], timeout=8000)
         return True
-    except PWTimeout:
+    except Exception:
         return False
 
 # ----------------------------------------------------------------------------- commands
@@ -147,10 +172,12 @@ def cmd_login(args):
             if pw: page.fill(SEL["login_pass"], pw)
         except Exception:
             pass
-        sys.stderr.write("Complete login (and any CAPTCHA/2FA) in the opened window...\n")
+        sys.stderr.write("Complete login (and any CAPTCHA/2FA/SSO) in the opened window...\n")
         deadline = time.time() + float(args.timeout)
         while time.time() < deadline:
-            if is_logged_in(page):
+            # Poll the auth cookie only — do NOT navigate here, or we'd interrupt the
+            # user's in-progress SSO redirect (e.g. Microsoft/Google login) every tick.
+            if _has_li_at(ctx):
                 ctx.close(); print(json.dumps({"status": "ok", "already": False})); return
             time.sleep(3)
         ctx.close(); print(json.dumps({"status": "blocked", "reason": "login_timeout"}))
@@ -167,29 +194,39 @@ def cmd_search(args):
     if filters.get("f_E"): params["f_E"] = filters["f_E"]          # experience level
     if filters.get("f_TPR"): params["f_TPR"] = filters["f_TPR"]    # date posted
     if filters.get("f_AL"): params["f_AL"] = "true"                # easy-apply only
+    if filters.get("geoId"): params["geoId"] = filters["geoId"]    # survives the search-results redirect; `location` doesn't
     qs = "&".join(f"{k}={str(v).replace(' ', '%20')}" for k, v in params.items())
     url = f"https://www.linkedin.com/jobs/search/?{qs}"
     results = []
+    limit = int(args.limit)
     with sync_playwright() as p:
         ctx = launch(p); page = ctx.new_page()
         if not is_logged_in(page):
             ctx.close(); print(json.dumps({"status": "blocked", "reason": "not_logged_in"})); return
         page.goto(url, wait_until="domcontentloaded"); human_delay()
-        cards = page.locator(SEL["job_card"])
-        n = min(cards.count(), int(args.limit) * 2)  # over-fetch; some won't be easy-apply
-        for i in range(n):
-            if len(results) >= int(args.limit): break
+        page.wait_for_timeout(3000)
+        # Collect ids from the list (new UI componentkey, legacy data attr), scrolling to load more.
+        ids = []
+        for _ in range(4):
+            keys = page.locator(SEL["job_card_id"]).evaluate_all("els => els.map(e => e.getAttribute('componentkey'))")
+            keys += page.locator(SEL["job_card"]).evaluate_all("els => els.map(e => e.getAttribute('data-occludable-job-id') || '')")
+            for k in keys:
+                m = re.search(r"(\d{8,})$", k or "")
+                if m and m.group(1) not in ids: ids.append(m.group(1))
+            if len(ids) >= limit: break
+            page.mouse.move(300, 450); page.mouse.wheel(0, 2500); human_delay()
+        # Visit each job's own page: one code path for title/desc/easy-apply regardless of list UI.
+        for jid in ids[:limit]:
             try:
-                card = cards.nth(i); card.click(); human_delay()
-                cur = page.url; jid = _job_id_from_url(cur)
-                title = page.locator(SEL["job_title_panel"]).first.inner_text(timeout=5000)
+                page.goto(f"https://www.linkedin.com/jobs/view/{jid}/", wait_until="domcontentloaded"); human_delay()
+                parts = [norm(x) for x in page.title().split(" | ")]  # "Title | Company | LinkedIn"
                 desc = ""
                 try: desc = page.locator(SEL["job_desc_panel"]).first.inner_text(timeout=5000)
                 except Exception: pass
-                easy = page.locator(SEL["easy_apply_btn"]).count() > 0
                 results.append({
-                    "id": jid, "title": norm(title)[:160], "url": f"https://www.linkedin.com/jobs/view/{jid}/",
-                    "easy_apply": easy, "description": desc[:4000],
+                    "id": jid, "title": parts[0][:160], "company": parts[1] if len(parts) > 2 else "",
+                    "url": f"https://www.linkedin.com/jobs/view/{jid}/",
+                    "easy_apply": page.locator(SEL["easy_apply_btn"]).count() > 0, "description": desc[:4000],
                 })
             except Exception:
                 continue
@@ -197,34 +234,68 @@ def cmd_search(args):
     print(json.dumps({"status": "ok", "count": len(results), "jobs": results}))
 
 # ---- Easy Apply modal walker ----------------------------------------------
+# Tags every fillable control in the modal with data-ja-idx and describes it. Class names are
+# hashed, so we rely only on semantic HTML: <label for>, <fieldset>/<legend>, required attrs.
+_GROUPS_JS = r"""d => {
+  const out = []; let i = 0;
+  const vis = e => !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length);
+  const labelOf = e => {
+    let l = e.id && d.querySelector('label[for="' + CSS.escape(e.id) + '"]');
+    if (!l) l = e.closest('label');
+    return (l ? l.innerText : (e.getAttribute('aria-label') || '')).trim();
+  };
+  // Radio option text lives in a sibling div (2026-11), not a <label>: climb to the first
+  // ancestor with text.
+  const optOf = r => {
+    const l = r.id && d.querySelector('label[for="' + CSS.escape(r.id) + '"]');
+    if (l && l.innerText.trim()) return l.innerText.trim();
+    for (let n = r.parentElement, k = 0; n && k < 4; n = n.parentElement, k++)
+      if ((n.innerText || '').trim()) return n.innerText.trim();
+    return '';
+  };
+  for (const fs of d.querySelectorAll('fieldset')) {
+    const opts = [...fs.querySelectorAll('input[type=radio], input[type=checkbox]')];
+    if (!opts.length) continue;
+    fs.dataset.jaIdx = i;
+    // No <legend> in the 2026-11 UI: the question is each radio's aria-label, and the '*'
+    // required marker sits in a sibling of the fieldset.
+    const leg = ((fs.querySelector('legend') || {}).innerText || fs.getAttribute('aria-label')
+                 || opts[0].getAttribute('aria-label') || '').trim();
+    const around = ((fs.parentElement || fs).innerText || '');
+    out.push({idx: i++, kind: opts[0].type === 'radio' ? 'radio' : 'checkbox', label: leg,
+      required: opts.some(r => r.required || r.getAttribute('aria-required') === 'true')
+                || fs.getAttribute('aria-required') === 'true' || leg.includes('*') || around.includes('*'),
+      options: opts.map(optOf), filled: opts.some(r => r.checked)});
+  }
+  for (const e of d.querySelectorAll('input, select, textarea')) {
+    if (e.closest('fieldset') && (e.type === 'radio' || e.type === 'checkbox')) continue;
+    if (['hidden', 'file', 'submit', 'button', 'radio'].includes(e.type) || !vis(e)) continue;
+    e.dataset.jaIdx = i;
+    const label = labelOf(e);
+    const kind = e.tagName === 'SELECT' ? 'select' : e.tagName === 'TEXTAREA' ? 'textarea'
+               : e.type === 'checkbox' ? 'checkbox' : 'text';
+    const options = kind === 'select' ? [...e.options].map(o => o.text.trim()) : [];
+    let filled = kind === 'checkbox' ? e.checked : !!(e.value || '').trim();
+    if (kind === 'select') filled = filled && !/^select an option$/i.test((e.options[e.selectedIndex] || {}).text || '');
+    out.push({idx: i++, kind, label,
+      required: e.required || e.getAttribute('aria-required') === 'true' || label.includes('*'),
+      options, filled});
+  }
+  return out;
+}"""
+
 def _read_groups(modal):
-    """Return [{label, kind, ref_index, required, options}] for fillable fields on the current step."""
-    groups = []
-    els = modal.locator(SEL["form_group"])
-    for i in range(els.count()):
-        g = els.nth(i)
-        try:
-            label = norm(g.inner_text())[:200]
-        except Exception:
-            label = ""
-        kind, options = "text", []
-        if g.locator("select").count():
-            kind = "select"
-            opts = g.locator("select option")
-            options = [norm(opts.nth(j).inner_text()) for j in range(opts.count())]
-        elif g.locator("textarea").count():
-            kind = "textarea"
-        elif g.locator("input[type='radio']").count():
-            kind = "radio"
-            rb = g.locator("label")
-            options = [norm(rb.nth(j).inner_text()) for j in range(rb.count())]
-        elif g.locator("input[type='checkbox']").count():
-            kind = "checkbox"
-        required = g.locator("[aria-required='true'], .fb-dash-form-element__error-field").count() > 0 \
-                   or "*" in (label[:3])
-        groups.append({"label": label, "kind": kind, "required": required,
-                       "options": options, "ref_index": i})
-    return groups
+    """Return [{idx, label, kind, required, options, filled}] for fillable controls on this step."""
+    return modal.evaluate(_GROUPS_JS)
+
+def _pick(options, value):
+    """Option text matching value: exact (case-insensitive), then substring either way."""
+    v = norm(str(value))
+    for o in options:
+        if norm(o) == v: return o
+    for o in options:
+        if v and (v in norm(o) or norm(o) in v): return o
+    return None
 
 def _answer_for(label, answers, profile):
     """Heuristic match label -> value from answers map + profile basics."""
@@ -235,17 +306,30 @@ def _answer_for(label, answers, profile):
     ident = (profile.get("identity") or {})
     pref = (profile.get("preferences") or {})
     if "email" in nl: return ident.get("email")
-    if "phone" in nl or "mobile" in nl: return ident.get("phone")
-    if "city" in nl or "location" in nl: return ident.get("location")
+    if ("phone" in nl or "mobile" in nl) and "country code" not in nl:
+        # LinkedIn has a separate country-code select and rejects '+'/symbols here:
+        # "+44 7700900123" -> "7700900123"
+        ph = ident.get("phone") or ""
+        return re.sub(r"\D", "", ph.split(" ", 1)[-1]) or None
+    if "relocat" in nl:  # before the location rule: "relocation" contains "location"
+        wr = pref.get("willing_to_relocate")
+        return None if wr is None else ("Yes" if wr else "No")
+    if "city" in nl or nl.startswith("location"): return ident.get("location")  # not "this job's location"
     if "first name" in nl: return (ident.get("full_name") or "").split(" ")[0]
     if "last name" in nl: return (ident.get("full_name") or "").split(" ")[-1]
     # years-of-experience style numeric questions
-    if "years" in nl or "experience" in nl:
+    if "years" in nl:  # yes/no "do you have experience with X?" must not get a number
         yps = (profile.get("experience") or {}).get("years_per_skill") or {}
         for skill, yrs in yps.items():
             if norm(skill) in nl: return str(yrs)
+        # Only generic experience questions get total_years; an unlisted skill must go to
+        # the orchestrator (returning total_years there would fabricate a number).
         tot = (profile.get("experience") or {}).get("total_years")
-        if tot is not None: return str(tot)
+        if tot is not None and re.search(r"(total|overall|professional|work experience|years of experience do you have\??$)", nl):
+            return str(tot)
+        return None
+    if "sponsor" in nl and "without" in nl:
+        return None  # "authorized WITHOUT sponsorship" inverts the meaning — let the orchestrator answer
     if "sponsor" in nl:
         ns = (profile.get("work_authorization") or {}).get("needs_sponsorship")
         if ns is not None: return "Yes" if ns else "No"
@@ -253,22 +337,65 @@ def _answer_for(label, answers, profile):
         return "Yes"  # only set when profile indicates authorization; orchestrator validates
     return None
 
-def _fill_group(g, group, value):
+def _fill_group(modal, group, value):
+    """Fill one tagged control. Returns False when the value doesn't fit (e.g. no matching option)."""
+    el = modal.locator(f"[data-ja-idx='{group['idx']}']").first
     try:
         if group["kind"] in ("text", "textarea"):
-            tgt = g.locator("input, textarea").first
-            tgt.fill(str(value)); return True
+            el.fill(str(value)); return True
         if group["kind"] == "select":
-            g.locator("select").first.select_option(label=re.compile(re.escape(str(value)), re.I)); return True
+            opt = _pick(group["options"], value)
+            if opt is None: return False
+            el.select_option(label=opt); return True
         if group["kind"] == "radio":
-            g.locator("label", has_text=re.compile(re.escape(str(value)), re.I)).first.click(); return True
+            opt = _pick(group["options"], value)
+            if opt is None: return False
+            return _check_radio(el.locator("input[type='radio']").nth(group["options"].index(opt)))
         if group["kind"] == "checkbox":
             if str(value).lower() in ("yes", "true", "1"):
-                g.locator("input[type='checkbox']").first.check()
+                (el if el.evaluate("e => e.tagName") == "INPUT" else el.locator("input").first).check(force=True)
             return True
     except Exception:
         return False
     return False
+
+def _check_radio(r):
+    """LinkedIn's styled radios often ignore check(force=True); fall back to clicking the
+    nearest ancestor with visible text (the option/card). Returns the final checked state."""
+    try: r.check(force=True, timeout=3000)
+    except Exception: pass
+    if not r.is_checked():
+        r.evaluate("e => { for (let n = e.parentElement, k = 0; n && k < 4; n = n.parentElement, k++)"
+                   " if ((n.innerText || '').trim()) { n.click(); return; } }")
+        r.page.wait_for_timeout(500)
+    return r.is_checked()
+
+def _modal_button(modal, pattern):
+    b = modal.get_by_role("button", name=re.compile(pattern, re.I))
+    return b.first if b.count() else None
+
+def _attach_resume(page, modal, resume):
+    """Select the tailored resume in the modal's resume list, uploading it once if absent.
+    Returns True only if the tailored file ends up as the checked choice."""
+    # Each resume card is a radio whose aria-label is the file name. Always upload: a fresh
+    # upload lands at the top of the list and is auto-selected, whereas an older saved copy
+    # can sit in the collapsed part of the list where clicks don't register.
+    radio = modal.locator(f"input[type='radio'][aria-label={json.dumps(Path(resume).name)}]")
+    before = radio.count()
+    up = _modal_button(modal, r"^\s*upload resume\s*$")
+    if up is None: return False
+    with page.expect_file_chooser() as fc:
+        up.click()
+    fc.value.set_files(resume)
+    try:
+        for _ in range(40):  # upload time varies (4s-6s+)
+            if radio.count() > before: break
+            page.wait_for_timeout(500)
+        if any(radio.nth(i).is_checked() for i in range(radio.count())):
+            return True
+        return _check_radio(radio.first)
+    except Exception:
+        return False
 
 def cmd_apply(args):
     answers = {}
@@ -281,7 +408,6 @@ def cmd_apply(args):
             import yaml; profile = yaml.safe_load(pf.read_text(encoding="utf-8")) or {}
         except Exception: pass
     mode = args.mode  # auto | review
-    result = {"status": "error", "job_url": args.job_url, "mode": mode}
     with sync_playwright() as p:
         ctx = launch(p); page = ctx.new_page()
         if not is_logged_in(page):
@@ -290,62 +416,67 @@ def cmd_apply(args):
         if page.locator(SEL["easy_apply_btn"]).count() == 0:
             ctx.close(); print(json.dumps({"status": "skip", "reason": "no_easy_apply"})); return
         page.locator(SEL["easy_apply_btn"]).first.click(); human_delay()
-        # upload tailored resume if a file input is present
-        if args.resume and Path(args.resume).exists():
-            try:
-                page.locator(SEL["resume_upload"]).first.set_input_files(args.resume, timeout=4000)
-                human_delay()
-            except Exception: pass
-
+        resume = str(Path(args.resume).resolve()) if args.resume and Path(args.resume).exists() else ""
+        resume_attached = None  # None = no resume step seen / no --resume given
         unanswered = []
+        def done(payload):
+            ctx.close(); payload.update(job_url=args.job_url, resume_attached=resume_attached)
+            print(json.dumps(payload))
+        def shot(suffix=""):
+            path = JOB_ENGINE / "screenshots" / f"{_job_id_from_url(args.job_url)}{suffix}.png"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            try: page.screenshot(path=str(path))
+            except Exception: pass
+            return str(path)
         for step in range(15):  # safety bound on modal steps
             modal = page.locator(SEL["modal"]).first
-            groups = _read_groups(modal)
-            for g_meta in groups:
-                gi = modal.locator(SEL["form_group"]).nth(g_meta["ref_index"])
-                val = _answer_for(g_meta["label"], answers, profile)
-                if val is None:
-                    if g_meta["required"]:
-                        unanswered.append({"label": g_meta["label"], "kind": g_meta["kind"],
-                                           "options": g_meta["options"]})
+            try: modal.wait_for(timeout=8000)
+            except Exception: return done({"status": "error", "error": "no_modal"})
+            if resume and resume_attached is not True:
+                # The resume section renders after the contact fields — wait for it, or a fast
+                # pass skips the upload and submits the default resume (happened 2026-11-12).
+                try:
+                    modal.get_by_role("button", name=re.compile(r"^\s*upload resume\s*$", re.I)).first.wait_for(timeout=6000)
+                    resume_attached = _attach_resume(page, modal, resume)
+                except Exception:
+                    pass
+            for g in _read_groups(modal):
+                if g["filled"]: continue  # keep LinkedIn's prefilled values (contact info, chosen resume)
+                val = _answer_for(g["label"], answers, profile)
+                if val is None or not _fill_group(modal, g, val):
+                    if g["required"]:
+                        q = {"label": g["label"], "kind": g["kind"], "options": g["options"]}
+                        if val is not None: q["rejected_value"] = val
+                        unanswered.append(q)
                     continue
-                _fill_group(gi, g_meta, val)
                 human_delay()
             if unanswered:
-                ctx.close()
-                print(json.dumps({"status": "needs_answers", "job_url": args.job_url,
-                                  "questions": unanswered}))
-                return
-            # advance: submit > review > next
-            if page.locator(SEL["modal_submit"]).count():
-                if mode == "auto":
-                    page.locator(SEL["modal_submit"]).first.click(); human_delay()
-                    shot = JOB_ENGINE / "screenshots" / f"{_job_id_from_url(args.job_url)}.png"
-                    shot.parent.mkdir(parents=True, exist_ok=True)
-                    try: page.screenshot(path=str(shot))
-                    except Exception: pass
-                    ctx.close()
-                    print(json.dumps({"status": "submitted", "job_url": args.job_url,
-                                      "screenshot": str(shot)})); return
-                else:  # review: stop at submit, screenshot the review state
-                    shot = JOB_ENGINE / "screenshots" / f"{_job_id_from_url(args.job_url)}_review.png"
-                    shot.parent.mkdir(parents=True, exist_ok=True)
-                    try: page.screenshot(path=str(shot))
-                    except Exception: pass
-                    ctx.close()
-                    print(json.dumps({"status": "ready_for_review", "job_url": args.job_url,
-                                      "screenshot": str(shot),
-                                      "note": "re-run with --mode auto to submit"})); return
-            elif page.locator(SEL["modal_review"]).count():
-                page.locator(SEL["modal_review"]).first.click(); human_delay()
-            elif page.locator(SEL["modal_next"]).count():
-                page.locator(SEL["modal_next"]).first.click(); human_delay()
-            else:
-                ctx.close()
-                print(json.dumps({"status": "error", "error": "no_advance_button",
-                                  "job_url": args.job_url})); return
-        ctx.close()
-        print(json.dumps({"status": "error", "error": "step_limit_exceeded"}))
+                return done({"status": "needs_answers", "questions": unanswered})
+            submit = _modal_button(modal, r"^\s*submit( application)?\s*$")
+            if submit:
+                if mode != "auto":
+                    return done({"status": "ready_for_review", "screenshot": shot("_review"),
+                                 "note": "re-run with --mode auto to submit"})
+                if resume and resume_attached is not True:  # never submit the wrong resume
+                    return done({"status": "error", "error": "resume_not_attached", "screenshot": shot("_error")})
+                submit.click(); human_delay()
+                # Verify LinkedIn's confirmation rather than assuming the click worked.
+                try:
+                    page.get_by_text(re.compile(r"application was sent|application submitted", re.I)).first.wait_for(timeout=10000)
+                    confirmed = True
+                except Exception:
+                    confirmed = False
+                return done({"status": "submitted" if confirmed else "submit_unconfirmed", "screenshot": shot()})
+            adv = _modal_button(modal, r"^\s*review( your application)?\s*$") \
+                  or _modal_button(modal, r"^\s*(next|continue( to next step)?)\s*$")
+            if adv is None:
+                return done({"status": "error", "error": "no_advance_button", "screenshot": shot("_error")})
+            before = modal.inner_text()
+            adv.click(); human_delay()
+            if page.locator(SEL["modal"]).first.inner_text() == before:  # validation kept us here
+                return done({"status": "error", "error": "stuck_on_step", "screenshot": shot("_error"),
+                             "modal_text": norm(before)[:1500]})
+        return done({"status": "error", "error": "step_limit_exceeded"})
 
 # ----------------------------------------------------------------------------- cli
 def main():
