@@ -16,5 +16,5 @@
   "created": "2026-08-17",
   "updated": "2026-11-12",
   "overrides": {},
-  "note": "Partial (2026-11-12): Word COM docx->PDF proven on 4 real resumes (ad-hoc temp script, not in repo); SKILL.md untouched."
+  "note": "Partial (2026-11-12): docx_to_pdf.py shipped + wired into SKILL.md. Open: change-set->docx script, LibreOffice path untested, page-count check."
 }

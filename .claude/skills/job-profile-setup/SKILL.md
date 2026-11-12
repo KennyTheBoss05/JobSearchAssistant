@@ -46,7 +46,9 @@ parts they want to (re)do. If only the seeded files are present, this is a first
 `apply-to-jobs` needs Playwright. Detect the interpreter (prefer `.venv`), then:
 `python -m pip install playwright pyyaml python-docx && python -m playwright install chromium`.
 On Windows call the venv python directly (`.venv\Scripts\python.exe`) to avoid the PowerShell
-`.ps1` execution-policy block. The **pdf-processing** and **docx** skills are wired into this
+`.ps1` execution-policy block. Resume PDFs are rendered by `apply-to-jobs/scripts/docx_to_pdf.py`,
+which needs **Microsoft Word (Windows) or LibreOffice** — check one is present and, if not, tell
+the user to install LibreOffice before they try to apply. The **pdf-processing** and **docx** skills are wired into this
 repo — use them for PDF text extraction and .docx work rather than hand-rolling parsers.
 
 ### 3. Guided interview → profile.yaml

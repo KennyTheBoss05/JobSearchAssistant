@@ -46,9 +46,14 @@ given, skip search and go straight to those.
 3. **For each candidate, best first:**
    a. **Tailor resume** — subagent (**Opus**): apply `prompts/resume_tailor.md` grounded in
       `evidence.md` + the live docs. Take its change table, apply it to a copy of
-      `masters/resume_base.docx` (docx skill), export a PDF to `job_engine/outputs/<id>.pdf`.
+      `masters/resume_base.docx` (docx skill), saved as `job_engine/outputs/<id>.docx`. Convert
+      with `python .claude/skills/apply-to-jobs/scripts/docx_to_pdf.py job_engine/outputs/<id>.docx
+      "job_engine/outputs/<Full Name> Resume - <Company>.pdf"` (recruiters see the file name).
+      It prints `{"status":"ok","pdf":...}`; on `"status":"error"` (no Word/LibreOffice) stop the
+      run and tell the user what to install — never upload the .docx instead.
    b. **Tailor cover letter** — only if the form offers a slot (and `cover_letter.attach_only_if_slot`):
-      subagent applies `prompts/cover_letter.md`, render → PDF.
+      subagent applies `prompts/cover_letter.md`, then the same `docx_to_pdf.py` →
+      `<Full Name> Cover Letter - <Company>.pdf`.
    c. **Drive the application** — call `linkedin.py apply --job-url <url> --resume <pdf>
       --answers <answers.json> --mode <mode>`. The driver fills everything it can and:
         - returns `needs_answers` → for each question, answer with a subagent (**Sonnet**)

@@ -55,6 +55,16 @@ None of the acceptance criteria are met yet: no repo script, no visual formattin
 missing-converter JSON error, SKILL.md unchanged. Also name output PDFs
 `<Full Name> Resume - <Company>.pdf` — recruiters see the file name.
 
+## Progress — 2026-11-12 (later)
+
+Converter shipped: `.claude/skills/apply-to-jobs/scripts/docx_to_pdf.py` (Word COM via PowerShell,
+LibreOffice fallback, stdlib only). Verified on the real `resume_base.docx` → 3-page PDF via Word,
+page 1 checked visually (headings, bullets, right-aligned dates intact); spaces/apostrophes in paths
+OK; missing-converter case returns JSON error (simulated). SKILL.md 3a/3b now call it and use the
+`<Full Name> Resume - <Company>.pdf` naming; setup step 2 lists the Word/LibreOffice requirement.
+**Still open:** the change-set → docx script (edits are still done by subagents with python-docx),
+LibreOffice path untested (not installed here), page-count check against `resume.pages`.
+
 ## Overrides in force
 
 None.

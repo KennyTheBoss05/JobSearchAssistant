@@ -10,7 +10,7 @@ Two ways to use it:
 - [Claude Code](https://claude.com/claude-code) (for the skills)
 - Python 3.11
 - A LinkedIn account
-- **PDF export of resumes/cover letters:** Microsoft Word on Windows, or [LibreOffice](https://www.libreoffice.org/) on macOS/Linux
+- **PDF export of resumes/cover letters:** Microsoft Word (Windows) or [LibreOffice](https://www.libreoffice.org/) (any OS). Used by `.claude/skills/apply-to-jobs/scripts/docx_to_pdf.py`.
 
 ## Setup
 
