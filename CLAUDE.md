@@ -55,6 +55,8 @@ the seed on first run (never overwriting tuned files), so the suite is self-cont
 
 - **[job-profile-setup](.claude/skills/job-profile-setup/SKILL.md)** — run once: interview + doc ingestion → `profile.yaml`, `evidence.md`, `.docx` masters, LinkedIn login. Cross-platform.
 - **[apply-to-jobs](.claude/skills/apply-to-jobs/SKILL.md)** — autonomous applier (v1 = LinkedIn Easy Apply). Orchestrator drives the browser ([linkedin.py](.claude/skills/apply-to-jobs/scripts/linkedin.py)); subagents (Haiku=scrape, Sonnet=fit/answers, Opus=resume) do text reasoning. `--mode review|auto`. v2 (external ATS + site rotation) pending.
+  - **Unattended/scheduled:** auto mode skips + queues unknown questions to `job_engine/pending_questions.md`, self-heals selector drift (≤2 patches/run, uncommitted), writes `job_engine/reports/`. [autorun.py](.claude/skills/apply-to-jobs/scripts/autorun.py) `install|run|status|uninstall` = schtasks/cron → headless `claude -p "...scheduled run."`.
+  - **Gates:** [checks.py](.claude/skills/apply-to-jobs/scripts/checks.py) `claims` (token-level grounding vs masters + evidence + profile), `pdf` (page count + contact info), `quota` (`selection.max_per_day`), `selftest`.
 - **[tune-job-engine](.claude/skills/tune-job-engine/SKILL.md)** — edit tailoring/answer/selection/pacing behavior via the runtime `job_engine/engine_config.yaml` + `job_engine/prompts/` (defaults: the seed above).
 
 Hard rule across all three: **never fabricate** — tailoring/answers only reframe true facts

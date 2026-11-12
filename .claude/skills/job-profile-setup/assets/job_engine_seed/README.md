@@ -14,7 +14,7 @@ on first run (never overwriting files you've tuned).
 
 | Path | Origin | What it is |
 |---|---|---|
-| `engine_config.yaml` | seed → tunable | Knobs: selection, pacing, answer tone, resume/CL rules. Edited by `tune-job-engine`. |
+| `engine_config.yaml` | seed → tunable | Knobs: selection (incl. daily cap), pacing, answer tone, resume/CL rules, grounding, autorun schedule. Edited by `tune-job-engine`. |
 | `prompts/*.md` | seed → tunable | Tailoring/answer prompts ported from JobBot. Edited by `tune-job-engine`. |
 | `profile.example.yaml` | seed | Template for the structured profile. |
 | `profile.yaml` | built by setup | Your real structured profile. |
@@ -22,8 +22,11 @@ on first run (never overwriting files you've tuned).
 | `writing_style.md` | built by setup | A sample of how you write (JobBot input 3). |
 | `masters/*.docx` | built by setup | Editable master resume + cover letter, tailored per job. |
 | `outputs/` | runtime | Per-job tailored resume/CL PDFs. |
-| `screenshots/` | runtime | Submission confirmation screenshots (audit). |
+| `screenshots/` | runtime | Submission confirmation screenshots (audit) + `<id>_error.{png,html}` driver-error captures. |
 | `applications_log.jsonl` | runtime | One line per application: dedup + audit. |
+| `pending_questions.md` | runtime | Questions only you can answer, queued by auto runs; answered at the next interactive run into `profile.yaml:saved_answers`. |
+| `reports/` | runtime | One report per run + `autorun.log` (scheduled runs). |
+| `.autorun.lock` | runtime | Present while a scheduled run is active. |
 | `browser_profile/` | runtime | Persistent Playwright Chrome profile (your LinkedIn session). |
 | `.env` | optional | LinkedIn credentials (re-login fallback only). |
 
