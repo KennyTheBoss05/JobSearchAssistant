@@ -44,7 +44,8 @@ parts they want to (re)do. If only the seeded files are present, this is a first
 
 ### 2. Ensure dependencies (cross-platform)
 `apply-to-jobs` needs Playwright. Detect the interpreter (prefer `.venv`), then:
-`python -m pip install playwright pyyaml python-docx && python -m playwright install chromium`.
+`python -m pip install -r requirements.txt && python -m playwright install chromium`
+(no `requirements.txt`? install `playwright pyyaml python-docx pdfplumber` directly).
 On Windows call the venv python directly (`.venv\Scripts\python.exe`) to avoid the PowerShell
 `.ps1` execution-policy block. Resume PDFs are rendered by `apply-to-jobs/scripts/docx_to_pdf.py`,
 which needs **Microsoft Word (Windows) or LibreOffice** — check one is present and, if not, tell

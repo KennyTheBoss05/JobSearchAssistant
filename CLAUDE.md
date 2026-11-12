@@ -1,47 +1,16 @@
-# JobBot — JobSearchAssistant
+# JobSearchAssistant (branch `JobSearchAssistant` = `main`)
 
-RAG-based job-application assistant. A Streamlit app that tailors resumes & cover letters and answers job-application Q&A, grounded in the user's own PDFs via a FAISS vector store.
+Claude Code skill suite that applies to jobs autonomously: tailors a resume + cover letter per job, answers screening questions from the user's profile, and submits on LinkedIn (Easy Apply). Claude does all reasoning — no app server, no LLM API key.
+
+> The old Streamlit RAG app (JobBot.py) lives on the separate `JobBot` branch. Nothing here depends on it.
 
 ## Stack
 
-- **Language:** Python 3.11 (venv at [.venv/](.venv/))
-- **UI:** Streamlit (`streamlit run JobBot.py`)
-- **LLM:** OpenAI `gpt-4o` (chat + `text-embedding-3-small`); Google Gemini via `langchain_google_genai` / `google.generativeai`
-- **Orchestration:** LangChain (`langchain`, `langchain_community`, `langchain_core`, `langchain_openai`)
-- **Vector store:** FAISS (`faiss-cpu`), persisted to [faiss_index_job/](faiss_index_job/)
-- **PDF parsing:** `pdfplumber` (primary), `PyPDF2`
-- **Entry point:** [JobBot.py](JobBot.py)
-
-## Repo-specific notes
-
-- **Single-file app.** All logic lives in [JobBot.py](JobBot.py) — no module split yet.
-- **State on disk, not in DB.** Uploaded context is parsed to `resume_text.txt`, `cl_text.txt`, `english_style.txt`, and embedded into `faiss_index_job/`. The app reads these on launch.
-- **Secrets via `.env`.** `OPENAI_API_KEY` is loaded with `python-dotenv`. The "Ask" flow fails silently / errors without it. Never commit `.env`.
-- **`requirements.txt` is pruned** to exactly what `JobBot.py` imports (plus `faiss-cpu` as the FAISS backend). Transitive deps resolve via pip. If you add an import, add the top-level package here and pin it.
-- **Remote:** **public** GitHub repo `KennyTheBoss05/JobSearchAssistant`. User-facing setup lives in [README.md](README.md) — keep it in sync when prerequisites change.
-
-## Environment gotchas
-
-- **Python:** anaconda3 was uninstalled (2026-11). `.venv` is now built by **uv** (`~\.local\bin\uv.exe`, CPython 3.11): rebuild with `uv venv --python 3.11 --clear .venv` + `uv pip install --python .venv\Scripts\python.exe -r requirements.txt playwright python-docx pyyaml` + `.venv\Scripts\python.exe -m playwright install chromium`. No Python on PATH — always call `.venv\Scripts\python.exe`.
-- **docx → PDF:** use Word COM automation (Word is installed; LibreOffice isn't).
-- **PowerShell exec-policy** (`RemoteSigned`) blocks `.ps1` wrappers — if shell-scripting any Node tooling, call `npm.cmd` / `npx.cmd` directly. (Not currently needed — pure Python project.)
-
-## Workflow (from brain)
-
-- **Plan-mode first.** Never edit before there's a plan, even a small one. Clarifying questions are cheaper than retries.
-- **Ask until ≥95% confident.** Use `AskUserQuestion`, citing file paths / line numbers so Kevin can answer fast.
-- **Self-check baked into the to-do list.** Verify before moving on. For UI changes, launch `streamlit run JobBot.py` and click through; refresh-on-save is automatic.
-- **Be honest about what wasn't tested.** "Can't verify the RAG output without an API key + uploaded PDFs" is acceptable; "looks good" without verification is not.
-- **Sub-agents (Haiku)** for read-heavy / scrape / summarize work. Main thread stays on Opus.
-- **Communication:** direct, no sycophancy, no trailing summaries when the diff already shows the change.
-- **Risk-sensitive actions confirm first** — destructive ops, force-pushes, deleting the FAISS index or the `*_text.txt` state files.
-- **File references** use markdown link syntax — `[JobBot.py:345](JobBot.py#L345)`.
-
-## Python-LLM specifics
-
-- **Pin provider SDK versions** in `requirements.txt` (already done for `openai`, `langchain_*`, `google.generativeai`) — LangChain breaks across minor versions.
-- **RAG hygiene:** keep the vector store (`faiss_index_job/`) separate from source documents. Gitignore the indexed data and the generated `*_text.txt` state if a git repo is initialized.
-- Tunable globals live near the bottom of [JobBot.py](JobBot.py) (`Model`, `temperature0/1`, `score_threshold0/1`, `k`, `chunk_size`, `chunk_overlap`, `max_tokens`).
+- **Language:** Python 3.11 (venv at [.venv/](.venv/)) — skill scripts only
+- **Browser automation:** Playwright (Chromium, headed)
+- **Docs:** `python-docx` (master/tailored resumes), Word COM or LibreOffice for docx → PDF, `pdfplumber` (PDF gate)
+- **Config:** PyYAML (`job_engine/engine_config.yaml`, `profile.yaml`)
+- **Deps:** [requirements.txt](requirements.txt) — pinned; if a skill script gains an import, add + pin it here.
 
 ## Job-application skill suite (project-native, v1)
 
@@ -60,7 +29,32 @@ the seed on first run (never overwriting tuned files), so the suite is self-cont
 - **[tune-job-engine](.claude/skills/tune-job-engine/SKILL.md)** — edit tailoring/answer/selection/pacing behavior via the runtime `job_engine/engine_config.yaml` + `job_engine/prompts/` (defaults: the seed above).
 
 Hard rule across all three: **never fabricate** — tailoring/answers only reframe true facts
-from resume + `evidence.md`. Runtime deps (`playwright`, `python-docx`) install during setup.
+from resume + `evidence.md`.
+
+Task backlog: [.jarvis/TASKS.md](.jarvis/TASKS.md).
+
+## Repo-specific notes
+
+- **State on disk.** All personal/runtime data (profile, evidence, masters, outputs, browser profile, LinkedIn creds in `job_engine/.env`) lives in `job_engine/` — gitignored. Never commit it.
+- **Remote:** **public** GitHub repo `KennyTheBoss05/JobSearchAssistant`. User-facing setup lives in [README.md](README.md) — keep it in sync when prerequisites change.
+- **Shared working copy.** The `JobBot` branch shares this checkout. Its data dirs (`faiss_index_job/`, `Job Text Files/`, `Job PDFs/`, root `.env`) are listed in `.git/info/exclude` (local-only) so they never show as untracked here.
+
+## Environment gotchas
+
+- **Python:** anaconda3 was uninstalled (2026-11). `.venv` is built by **uv** (`~\.local\bin\uv.exe`, CPython 3.11): rebuild with `uv venv --python 3.11 --clear .venv` + `uv pip install --python .venv\Scripts\python.exe -r requirements.txt` + `.venv\Scripts\python.exe -m playwright install chromium`. No Python on PATH — always call `.venv\Scripts\python.exe`.
+- **docx → PDF:** use Word COM automation (Word is installed; LibreOffice isn't).
+- **PowerShell exec-policy** (`RemoteSigned`) blocks `.ps1` wrappers — if shell-scripting any Node tooling, call `npm.cmd` / `npx.cmd` directly. (Not currently needed — pure Python project.)
+
+## Workflow (from brain)
+
+- **Plan-mode first.** Never edit before there's a plan, even a small one. Clarifying questions are cheaper than retries.
+- **Ask until ≥95% confident.** Use `AskUserQuestion`, citing file paths / line numbers so Kevin can answer fast.
+- **Self-check baked into the to-do list.** Verify before moving on. For script changes, run `checks.py selftest` at minimum.
+- **Be honest about what wasn't tested.** "Can't verify the apply flow without a live LinkedIn session" is acceptable; "looks good" without verification is not.
+- **Sub-agents (Haiku)** for read-heavy / scrape / summarize work. Main thread stays on Opus.
+- **Communication:** direct, no sycophancy, no trailing summaries when the diff already shows the change.
+- **Risk-sensitive actions confirm first** — destructive ops, force-pushes, deleting `job_engine/` data, real (auto-mode) submissions.
+- **File references** use markdown link syntax — `[linkedin.py:166](.claude/skills/apply-to-jobs/scripts/linkedin.py#L166)`.
 
 ## Tools wired into this repo
 
@@ -68,7 +62,7 @@ Copies of brain assets live in [.claude/](.claude/) (snapshot — re-run `/wire-
 
 - **Agents:** `code-reviewer`, `debugger`, `prompt-engineer`
 - **Commands:** `/ultra-think`, `/code-review`, `/init-project`
-- **Skills:** `brainstorming`, `skill-creator`, `code-reviewer`, `grill-me`, `handoff`, `pdf-processing` (PDF inputs), `docx` (Projects.docx)
+- **Skills:** `brainstorming`, `skill-creator`, `code-reviewer`, `grill-me`, `handoff`, `pdf-processing` (PDF inputs), `docx` (resume masters)
 - **Hooks:** `notify-prompt-finished.ps1` (already wired globally on Kevin's machine; copy here is for teammates)
 
 ## Recommended plugins

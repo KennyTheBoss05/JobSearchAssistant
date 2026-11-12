@@ -1,19 +1,8 @@
-# Python version == 3.11.13
-# Pruned to only the packages JobBot.py imports directly (plus faiss-cpu, the FAISS backend).
-# Transitive dependencies (httpx, pydantic, protobuf, langsmith, requests, etc.) are resolved by pip.
+# Python version == 3.11
+# Runtime deps of the job-applying skills' scripts (.claude/skills/*/scripts/).
+# After installing, also run: python -m playwright install chromium
 
-streamlit==1.45.1
-PyPDF2==3.0.1
+playwright==1.65.1
+python-docx==1.2.0
+PyYAML==6.0.3
 pdfplumber==0.11.7
-tiktoken==0.9.0
-openai==1.91.0
-python-dotenv==1.1.1
-
-langchain==0.3.26
-langchain_community==0.3.26
-langchain_core==0.3.66
-langchain_openai==0.3.25
-langchain_google_genai==2.0.10
-google.generativeai==0.8.5
-
-faiss-cpu==1.11.0
