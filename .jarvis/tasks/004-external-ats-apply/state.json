@@ -1,0 +1,20 @@
+{
+  "id": "004",
+  "slug": "external-ats-apply",
+  "project": "JobSearchAssistant",
+  "project_path": "C:\My Files\Coding Projects\JobSearchAssistant",
+  "title": "Apply to jobs outside LinkedIn Easy Apply (external ATS, v2)",
+  "status": "queued",
+  "lane": "chat",
+  "priority": "P2",
+  "branch": null,
+  "base_branch": null,
+  "plan_session_id": null,
+  "exec_session_id": null,
+  "chat_session_id": null,
+  "worker_pid": null,
+  "created": "2026-11-12",
+  "updated": "2026-11-12",
+  "overrides": {},
+  "note": "Depends on 001 (PDF export) and 003 (logging/dedup)."
+}

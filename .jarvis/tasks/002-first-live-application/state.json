@@ -1,0 +1,20 @@
+{
+  "id": "002",
+  "slug": "first-live-application",
+  "project": "JobSearchAssistant",
+  "project_path": "C:\\My Files\\Coding Projects\\JobSearchAssistant",
+  "title": "Complete one real end-to-end application",
+  "status": "done",
+  "lane": "chat",
+  "priority": "P1",
+  "branch": null,
+  "base_branch": null,
+  "plan_session_id": null,
+  "exec_session_id": null,
+  "chat_session_id": null,
+  "worker_pid": null,
+  "created": "2026-08-17",
+  "updated": "2026-11-12",
+  "overrides": {},
+  "note": "Closed by Kevin 2026-11-12. Leftovers (saved_answers write-back, stale profile) not required to close."
+}
