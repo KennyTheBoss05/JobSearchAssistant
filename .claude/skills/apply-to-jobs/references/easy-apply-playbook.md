@@ -38,16 +38,18 @@ Reusable answers (tone-stable, not job-specific) should also be saved to
 `profile.yaml:saved_answers` so future runs start pre-filled.
 
 ## Resume upload
-The driver calls `set_input_files` on the first file input with the tailored PDF you pass via
-`--resume`. If a job pre-fills the user's stored LinkedIn resume and offers no upload input,
-the tailored PDF can't be attached — note this in the log; the application still proceeds
-with screening answers tailored.
+The driver clicks "Upload resume" and feeds the tailored PDF from `--resume` to the file
+chooser (see the 2026-11-12 notes). If the tailored file doesn't end up selected, auto mode
+refuses to submit (`resume_not_attached`).
 
 ## Selector drift (expect it)
 LinkedIn changes its DOM frequently and runs bot detection. The `SEL` dict at the top of
-`linkedin.py` is the single place to fix selectors. On the first live run, if a step errors,
-open the page, read the actual DOM/aria labels, update `SEL`, and re-run. The architecture
-(persistent profile + iterative needs_answers loop) is stable; only selectors are brittle.
+`linkedin.py` is the first place to fix selectors. On a drift `error` the driver saves
+`screenshots/<id>_error.png` + `<id>_error.html` (the modal's HTML, or the page's if no modal).
+Self-heal from those: diagnose, patch `SEL` or the relevant function, retry the job once, max
+2 patches per run (decision-tree). Record every successful fix below under a dated
+"Verified UI notes (<date>, self-heal)" heading. The architecture (persistent profile +
+iterative needs_answers loop) is stable; only selectors are brittle.
 
 ### Verified UI notes (2026-06, first live run)
 Hard-won facts from the first end-to-end validation — start here before re-deriving:
