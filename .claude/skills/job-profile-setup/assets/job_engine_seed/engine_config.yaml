@@ -8,6 +8,7 @@ selection:
   fit_floor: 0.55          # 0..1 — skip jobs scoring below this (logged, not applied)
   rank_by_fit: true        # apply best-fit first; false = first-match order
   max_per_run: 0           # 0 = no cap (honor the N the user asks for). >0 enforces a ceiling.
+  max_per_day: 30          # cross-run cap on submitted applications per local day; 0 = unlimited
 
 # ---- Pacing (human-like; reduces LinkedIn bot-flagging) -----------------
 pacing:
@@ -21,7 +22,6 @@ pacing:
 answers:
   tone: "professional"       # tune-job-engine knob: professional | formal | warm | concise
   default_one_line: false    # true => keep free-text answers to a single sentence
-  creativity: "moderate"     # low | moderate — how much believable detail to add (JobBot mode-1 spirit)
 
 # ---- Resume tailoring rules (JobBot mode-0, generalized) ----------------
 # These replace the values JobBot hardcoded into the prompt text. Edit to taste.
@@ -59,9 +59,22 @@ grounding:
   # Tailoring/answers may ONLY reframe true facts present in resume + evidence.
   # Never invent experience, years, employers, or credentials. Non-negotiable.
   strict: true
+  allow_terms: []   # terms checks.py claims should accept (recurring false positives)
 
 # ---- Browser ------------------------------------------------------------
 browser:
   profile_dir: "browser_profile"        # persistent Playwright user-data-dir (relative to job_engine/)
   headless: false                       # headed so the user can complete CAPTCHA/2FA when needed
   channel: "chrome"                     # use installed Chrome; fallback to bundled chromium
+
+# ---- Autorun (scheduled, unattended runs) -------------------------------
+# Read only by scheduled runs (scripts/autorun.py). Interactive runs ignore it.
+autorun:
+  schedule:
+    time: "09:00"                    # local 24h
+    days: "MON,TUE,WED,THU,FRI"      # schtasks /D format; cron derived from it
+  searches:                          # each search submits up to `count` applications
+    - query: "AI Engineer"
+      geoId: 101165590               # UK
+      filters: {f_AL: true, f_TPR: r86400}   # Easy Apply only, posted in last 24h
+      count: 10

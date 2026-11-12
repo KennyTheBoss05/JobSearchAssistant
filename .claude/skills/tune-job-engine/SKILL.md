@@ -22,7 +22,7 @@ user can shape behavior without touching any code or re-onboarding. Everything l
 ## What you can tune (and where it lives)
 | The user wants to… | Edit |
 |---|---|
-| Change answer tone (professional/formal/warm/concise), one-line answers, creativity | `engine_config.yaml → answers` |
+| Change answer tone (professional/formal/warm/concise), one-line answers | `engine_config.yaml → answers` |
 | Be pickier/looser about which jobs to apply to | `engine_config.yaml → selection.fit_floor`, `rank_by_fit`, `max_per_run` |
 | Slow down / speed up, change delays | `engine_config.yaml → pacing` |
 | Lock/unlock skills or areas of interest; change resume page count, coverage targets, project-edit limits | `engine_config.yaml → resume` |

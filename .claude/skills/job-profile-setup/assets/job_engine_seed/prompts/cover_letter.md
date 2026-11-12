@@ -13,7 +13,7 @@ Only invoked when the application offers a cover-letter/message slot
 ## Hard rules
 - Ground ONLY in context (resume + evidence). Don't commit changes not supported by it. Never fabricate.
 - Do NOT copy any resume line verbatim into the cover letter; paraphrase if needed.
-- Match `{{writing_style}}`; sound human. You may add believable creative detail for flow, as long as it's realistically possible from a recruiter's POV.
+- Match `{{writing_style}}`; sound human.
 
 ## Structure (preserve the master's 5-part shape)
 The letter has: (1) intro — greeting + 1st paragraph; (2) about me/skillset — 2nd & 3rd paragraphs; (3) why I'm a good fit — bullet points (4th paragraph); (4) conclusion — 5th paragraph + sign-off.
