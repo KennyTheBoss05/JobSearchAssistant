@@ -6,8 +6,9 @@ description: >-
   applier paces itself. Use whenever the user wants to change application behavior WITHOUT
   re-running setup or applying, e.g. "make my answers more formal", "stop swapping out my SQL
   skill", "be pickier about which jobs to apply to", "tailor my resume less aggressively",
-  "answer screening questions in one line", "slow down between applications", "change the cover
-  letter to 1.5 pages", "lock these skills so they never change". Edits job_engine/engine_config.yaml
+  "answer screening questions in one line", "slow down between applications", "change my autorun
+  searches / time / days", "change the cover letter to 1.5 pages", "lock these skills so they
+  never change". Edits job_engine/engine_config.yaml
   and job_engine/prompts/*.md, which apply-to-jobs reads on every run. A quick, one-time-ish
   personalization layer — not for applying to jobs (use apply-to-jobs) or onboarding docs
   (use job-profile-setup).
@@ -23,7 +24,9 @@ user can shape behavior without touching any code or re-onboarding. Everything l
 | The user wants to… | Edit |
 |---|---|
 | Change answer tone (professional/formal/warm/concise), one-line answers | `engine_config.yaml → answers` |
-| Be pickier/looser about which jobs to apply to | `engine_config.yaml → selection.fit_floor`, `rank_by_fit`, `max_per_run` |
+| Be pickier/looser about which jobs to apply to; change the daily cap | `engine_config.yaml → selection.fit_floor`, `rank_by_fit`, `max_per_run`, `max_per_day` |
+| Change my autorun searches / time / days | `engine_config.yaml → autorun`, then re-run `.venv\Scripts\python.exe .claude/skills/apply-to-jobs/scripts/autorun.py install` (schedule changes only take effect after install) |
+| Stop a true term being flagged by the grounding check | add the fact to `evidence.md` (preferred) or a pure synonym to `grounding.allow_terms` |
 | Slow down / speed up, change delays | `engine_config.yaml → pacing` |
 | Lock/unlock skills or areas of interest; change resume page count, coverage targets, project-edit limits | `engine_config.yaml → resume` |
 | Change cover-letter length, standout-bullet count, company placeholder, coverage targets | `engine_config.yaml → cover_letter` |
