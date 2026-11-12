@@ -18,7 +18,7 @@ RAG-based job-application assistant. A Streamlit app that tailors resumes & cove
 - **State on disk, not in DB.** Uploaded context is parsed to `resume_text.txt`, `cl_text.txt`, `english_style.txt`, and embedded into `faiss_index_job/`. The app reads these on launch.
 - **Secrets via `.env`.** `OPENAI_API_KEY` is loaded with `python-dotenv`. The "Ask" flow fails silently / errors without it. Never commit `.env`.
 - **`requirements.txt` is pruned** to exactly what `JobBot.py` imports (plus `faiss-cpu` as the FAISS backend). Transitive deps resolve via pip. If you add an import, add the top-level package here and pin it.
-- **Not a git repo yet.** No remote; `gh` workflows don't apply until one is initialized.
+- **Remote:** private GitHub repo `KennyTheBoss05/JobSearchAssistant`. User-facing setup lives in [README.md](README.md) — keep it in sync when prerequisites change.
 
 ## Environment gotchas
 

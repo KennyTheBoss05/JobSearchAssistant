@@ -483,14 +483,14 @@ def main():
 
     
     st.button("Ask",key="ask_button")
-    if st.session_state.ask_button and st.session_state.job_desc != "" and os.path.exists("faiss_index_job\index.faiss"):
+    if st.session_state.ask_button and st.session_state.job_desc != "" and os.path.exists("faiss_index_job/index.faiss"):
         if st.session_state.ch == 0 or st.session_state.ch == 2:
             user_question = st.session_state.job_desc
 
         user_input(user_question+". "+ persona_text)
     elif st.session_state.ask_button and st.session_state.job_desc == "":
         st.write("No job description provided")
-    elif st.session_state.ask_button and not os.path.exists("faiss_index_job\index.faiss"):
+    elif st.session_state.ask_button and not os.path.exists("faiss_index_job/index.faiss"):
         st.write("No context files provided \n\n Provide context files for personalized results...\n\n\n\n")
         user_input(user_question+". "+ persona_text)
 
