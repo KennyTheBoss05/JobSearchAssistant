@@ -23,6 +23,9 @@ Commands:
   apply   ...                -> walk one Easy Apply modal (the core loop)
 
 All commands print a single JSON object to stdout. Errors -> {"status":"error","error":...}.
+`apply` errors also carry "screenshot" + "html" (job_engine/screenshots/<id>_error.{png,html})
+so the orchestrator can diagnose selector drift. Answers = profile.yaml:saved_answers
+overlaid by --answers (per-job wins).
 """
 from __future__ import annotations
 import argparse, json, os, random, re, sys, time
@@ -334,7 +337,12 @@ def _answer_for(label, answers, profile):
         ns = (profile.get("work_authorization") or {}).get("needs_sponsorship")
         if ns is not None: return "Yes" if ns else "No"
     if "authori" in nl or "legally" in nl:
-        return "Yes"  # only set when profile indicates authorization; orchestrator validates
+        # "Yes" only when the label names a country the profile lists; anything else
+        # (another country, "this country") goes to the orchestrator via needs_answers.
+        alias = {"uk": "united kingdom", "united kingdom": "uk"}
+        for c in (profile.get("work_authorization") or {}).get("countries_authorized") or []:
+            for name in {norm(c), alias.get(norm(c), norm(c))}:
+                if re.search(rf"\b{re.escape(name)}\b", nl): return "Yes"
     return None
 
 def _fill_group(modal, group, value):
@@ -398,15 +406,16 @@ def _attach_resume(page, modal, resume):
         return False
 
 def cmd_apply(args):
-    answers = {}
-    if args.answers and Path(args.answers).exists():
-        answers = {norm(k): v for k, v in json.loads(Path(args.answers).read_text(encoding="utf-8")).items()}
     profile = {}
     pf = JOB_ENGINE / "profile.yaml"
     if pf.exists():
         try:
             import yaml; profile = yaml.safe_load(pf.read_text(encoding="utf-8")) or {}
         except Exception: pass
+    # Answer bank first, then this job's answers.json (per-job overrides win).
+    answers = {norm(k): v for k, v in (profile.get("saved_answers") or {}).items()}
+    if args.answers and Path(args.answers).exists():
+        answers.update({norm(k): v for k, v in json.loads(Path(args.answers).read_text(encoding="utf-8")).items()})
     mode = args.mode  # auto | review
     with sync_playwright() as p:
         ctx = launch(p); page = ctx.new_page()
@@ -428,10 +437,20 @@ def cmd_apply(args):
             try: page.screenshot(path=str(path))
             except Exception: pass
             return str(path)
+        def fail(error, **extra):
+            """Error payload + screenshot + modal HTML (page HTML if no modal) for self-heal."""
+            html = JOB_ENGINE / "screenshots" / f"{_job_id_from_url(args.job_url)}_error.html"
+            png = shot("_error")
+            try:
+                try: src = page.locator(SEL["modal"]).first.inner_html(timeout=3000)
+                except Exception: src = page.content()
+                html.write_text(src, encoding="utf-8")
+            except Exception: pass
+            return done({"status": "error", "error": error, "screenshot": png, "html": str(html), **extra})
         for step in range(15):  # safety bound on modal steps
             modal = page.locator(SEL["modal"]).first
             try: modal.wait_for(timeout=8000)
-            except Exception: return done({"status": "error", "error": "no_modal"})
+            except Exception: return fail("no_modal")
             if resume and resume_attached is not True:
                 # The resume section renders after the contact fields — wait for it, or a fast
                 # pass skips the upload and submits the default resume (happened 2026-11-12).
@@ -458,7 +477,7 @@ def cmd_apply(args):
                     return done({"status": "ready_for_review", "screenshot": shot("_review"),
                                  "note": "re-run with --mode auto to submit"})
                 if resume and resume_attached is not True:  # never submit the wrong resume
-                    return done({"status": "error", "error": "resume_not_attached", "screenshot": shot("_error")})
+                    return fail("resume_not_attached")
                 submit.click(); human_delay()
                 # Verify LinkedIn's confirmation rather than assuming the click worked.
                 try:
@@ -470,13 +489,12 @@ def cmd_apply(args):
             adv = _modal_button(modal, r"^\s*review( your application)?\s*$") \
                   or _modal_button(modal, r"^\s*(next|continue( to next step)?)\s*$")
             if adv is None:
-                return done({"status": "error", "error": "no_advance_button", "screenshot": shot("_error")})
+                return fail("no_advance_button")
             before = modal.inner_text()
             adv.click(); human_delay()
             if page.locator(SEL["modal"]).first.inner_text() == before:  # validation kept us here
-                return done({"status": "error", "error": "stuck_on_step", "screenshot": shot("_error"),
-                             "modal_text": norm(before)[:1500]})
-        return done({"status": "error", "error": "step_limit_exceeded"})
+                return fail("stuck_on_step", modal_text=norm(before)[:1500])
+        return fail("step_limit_exceeded")
 
 # ----------------------------------------------------------------------------- cli
 def main():

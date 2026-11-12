@@ -18,12 +18,17 @@ The driver fills every field it can from `answers.json` + `profile.yaml` heurist
 | `ready_for_review` | review-mode stopped at Submit; review screenshot saved | show user the screenshot + planned answers; on approval re-run `--mode auto` |
 | `skip` / `no_easy_apply` | not an Easy Apply job (external ATS) | log skip; next candidate (v1 doesn't do external) |
 | `blocked` / `not_logged_in` | session-level wall | notify + pause (see decision-tree) |
-| `error` (`no_advance_button`, `step_limit_exceeded`) | DOM/selector drift | inspect live, adjust `SEL` in linkedin.py, retry once |
+| `error` (`no_modal`, `no_advance_button`, `stuck_on_step` + `modal_text`, `step_limit_exceeded`) | DOM/selector drift; payload has `screenshot` + `html` (`screenshots/<id>_error.{png,html}`) | self-heal: read both, patch `SEL`/the function in linkedin.py, retry that job once (see decision-tree) |
+| `error` (`resume_not_attached`) | tailored PDF wasn't the selected resume; nothing submitted | skip the job — safety guard, never self-healed |
+
+Every payload also carries `resume_attached` (`true`/`false`/`null` = no resume step or no `--resume`).
 
 ## answers.json format
-A flat map of question-label (or fragment) → value. The driver normalizes labels (lowercase,
+A flat map of question-label (or fragment) → value. The driver starts from
+`profile.yaml:saved_answers`, overlays `answers.json` (per-job wins), normalizes labels (lowercase,
 collapsed whitespace) and matches by exact then substring, then falls back to profile
-heuristics (email/phone/city/first/last name, years-per-skill, sponsorship). Example:
+heuristics (email/phone/city/first/last name, years-per-skill, sponsorship, and work
+authorization — "Yes" only when the label names a country in `countries_authorized`). Example:
 ```json
 {"how many years of experience do you have with python": "5",
  "are you authorized to work in the uk": "Yes",
