@@ -5,10 +5,11 @@ ats_tools.py — offline helpers for external-ATS applies. Each subcommand print
   detect  --url U            -> {"ats","host","tenant"}
   seen    --id ID [--url U]  -> {"seen":bool,"reason":str|null}   (reads applications_log.jsonl)
   account --site URL|host    -> {"site","email","password","created":bool}  (job_engine/accounts.json)
+  inbox   --from-domain D [...] [--minutes 15] [--wait 120] | --check  -> {"status","code","link"}  (Gmail IMAP)
   selftest
 """
 from __future__ import annotations
-import argparse, datetime, json, os, secrets, string, sys
+import argparse, datetime, email, email.utils, html, imaplib, json, os, re, secrets, string, sys, time
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -97,6 +98,105 @@ def get_or_create(accounts: dict, site: str, email: str) -> tuple:
     accounts[key] = {"email": email, "password": gen_password(), "created": datetime.date.today().isoformat()}
     return accounts[key], True
 
+# ----------------------------------------------------------------------------- inbox (Gmail IMAP)
+def read_env(path: Path) -> dict:
+    env = {}
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                env[k.strip()] = v.strip()
+    return env
+
+def gmail_creds(env: dict, identity_email: str) -> dict:
+    user, pw = env.get("GMAIL_ADDRESS"), env.get("GMAIL_APP_PASSWORD")
+    if not user or not pw:
+        return {"error": "gmail_not_configured"}
+    if user.lower() != (identity_email or "").lower():
+        return {"error": "gmail_mismatch"}
+    return {"user": user, "pw": pw}
+
+def host_ok(host: str, domains: list) -> bool:
+    host = (host or "").lower()
+    return any(host == d.lower() or host.endswith("." + d.lower()) for d in domains)
+
+def sender_matches(from_header: str, domains: list) -> bool:
+    addr = email.utils.parseaddr(from_header)[1]
+    return "@" in addr and host_ok(addr.rsplit("@", 1)[1], domains)
+
+KEYWORD = re.compile(r"code|verification|verify|one-time|passcode|otp", re.I)
+CODE = re.compile(r"\b(\d{4,8}|\d{2,4}[- ]\d{2,4})\b|\b(?=[A-Z0-9]*\d)[A-Z0-9]{6,8}\b")
+
+def extract_code_link(body: str, domains: list) -> dict:
+    text = re.sub(r"<[^>]+>", " ", html.unescape(body))
+    code = None
+    for k in KEYWORD.finditer(text):
+        for m in CODE.finditer(text[k.end():k.end() + 80]):
+            digits = re.sub(r"[- ]", "", m.group(0))
+            if m.group(1) is None or 4 <= len(digits) <= 8:
+                code = digits if m.group(1) else m.group(0)
+                break
+        if code:
+            break
+    raw = html.unescape(body)
+    urls = re.findall(r'href=["\'](https://[^"\']+)', raw, re.I) + re.findall(r'https://[^\s"\'<>]+', raw)
+    urls = [u.rstrip(".,;)") for u in urls]
+    good = [u for u in urls if host_ok(urlsplit(u).hostname, domains)]
+    link = next((u for u in good if re.search(r"verif|confirm|activat", u, re.I)), good[0] if good else None)
+    return {"code": code, "link": link}
+
+def msg_body(msg) -> str:
+    parts = [p for p in msg.walk() if p.get_content_maintype() == "text"]
+    for want in ("text/plain", "text/html"):
+        for p in parts:
+            if p.get_content_type() == want:
+                return p.get_payload(decode=True).decode(p.get_content_charset() or "utf-8", "replace")
+    return ""
+
+def cmd_inbox(a):
+    email_id = (load_yaml(JE / "profile.yaml").get("identity") or {}).get("email")
+    cred = gmail_creds(read_env(JE / ".env"), email_id)
+    if "error" in cred:
+        return {"status": "error", "error": cred["error"]}
+    if not a.check and not a.from_domain:
+        return {"status": "error", "error": "no_from_domain"}
+    deadline = time.monotonic() + a.wait
+    try:
+        box = imaplib.IMAP4_SSL("imap.gmail.com", 993)
+        try:
+            box.login(cred["user"], cred["pw"])
+            if a.check:
+                return {"status": "ok"}
+            box.select("INBOX", readonly=True)
+            while True:
+                cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=a.minutes)
+                since = cutoff.strftime("%d-%b-%Y")
+                ids = box.search(None, "SINCE", since)[1][0].split()
+                for i in reversed(ids[-30:]):  # newest first
+                    msg = email.message_from_bytes(box.fetch(i, "(BODY.PEEK[])")[1][0][1])
+                    try:
+                        when = email.utils.parsedate_to_datetime(msg["Date"])
+                        if when.tzinfo is None:
+                            when = when.replace(tzinfo=datetime.timezone.utc)
+                    except Exception:
+                        continue
+                    if when < cutoff or not sender_matches(msg.get("From", ""), a.from_domain):
+                        continue
+                    r = extract_code_link(msg_body(msg), a.from_domain)
+                    if r["code"] or r["link"]:
+                        return {"status": "ok", **r}
+                if time.monotonic() + 10 > deadline:
+                    return {"status": "none"}
+                time.sleep(10)
+        finally:
+            try:
+                box.logout()
+            except Exception:
+                pass
+    except Exception as ex:
+        return {"status": "error", "error": f"imap: {type(ex).__name__}"}
+
 def cmd_detect(a):
     return detect_ats(a.url)
 
@@ -148,6 +248,19 @@ def cmd_selftest(a=None):
     e2, c2 = get_or_create(acc, "acme.wd5.myworkdayjobs.com", "a@b.com")
     assert c1 and not c2 and e1["password"] == e2["password"]
     assert site_key("https://Acme.wd5.myworkdayjobs.com/x") == "acme.wd5.myworkdayjobs.com"
+    assert gmail_creds({}, "a@gmail.com") == {"error": "gmail_not_configured"}
+    assert gmail_creds({"GMAIL_ADDRESS": "x@gmail.com", "GMAIL_APP_PASSWORD": "p"}, "a@gmail.com") == {"error": "gmail_mismatch"}
+    assert gmail_creds({"GMAIL_ADDRESS": "A@Gmail.com", "GMAIL_APP_PASSWORD": "p"}, "a@gmail.com") == {"user": "A@Gmail.com", "pw": "p"}
+    assert sender_matches("Acme Careers <no-reply@acme.com>", ["myworkday.com", "acme.com"])
+    assert sender_matches("x <notify@mail.greenhouse.io>", ["greenhouse.io"])
+    assert not sender_matches("x <a@greenhouse.io.evil.com>", ["greenhouse.io"])
+    assert extract_code_link("Your verification code is 123-456.", ["acme.com"])["code"] == "123456"
+    assert extract_code_link("Use one-time passcode AB12CD to continue", ["acme.com"])["code"] == "AB12CD"
+    assert extract_code_link("Order 99887766 shipped", ["acme.com"])["code"] is None   # no keyword
+    r = extract_code_link('<a href="https://evil.com/?r=acme.com">x</a> <a href="https://acme.wd5.myworkday.com/verify?t=1">Verify</a>',
+                          ["myworkday.com"])
+    assert r["link"] == "https://acme.wd5.myworkday.com/verify?t=1"
+    assert extract_code_link("see https://evil.com/?r=acme.com", ["acme.com"])["link"] is None
     return {"status": "ok"}
 
 def main():
@@ -156,9 +269,11 @@ def main():
     d = sub.add_parser("detect"); d.add_argument("--url", required=True)
     e = sub.add_parser("seen"); e.add_argument("--id", required=True); e.add_argument("--url")
     c = sub.add_parser("account"); c.add_argument("--site", required=True)
+    i = sub.add_parser("inbox"); i.add_argument("--from-domain", action="append"); i.add_argument("--check", action="store_true")
+    i.add_argument("--minutes", type=int, default=15); i.add_argument("--wait", type=int, default=120)
     sub.add_parser("selftest")
     a = ap.parse_args()
-    cmds = {"detect": cmd_detect, "seen": cmd_seen, "account": cmd_account, "selftest": cmd_selftest}
+    cmds = {"detect": cmd_detect, "seen": cmd_seen, "account": cmd_account, "inbox": cmd_inbox, "selftest": cmd_selftest}
     try:
         out = cmds[a.cmd](a)
     except Exception as ex:
