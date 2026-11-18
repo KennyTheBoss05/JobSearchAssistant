@@ -20,7 +20,9 @@ Commands:
   check                      -> {"logged_in": bool}
   login                      -> opens headed browser; waits until you're logged in
   search  ...                -> scrape job listings as JSON
-  apply   ...                -> walk one Easy Apply modal (the core loop)
+  apply   ...                -> walk one Easy Apply modal (the core loop); a non-Easy-Apply job
+                                returns {"status":"external","url","ats","host","tenant"} (the
+                                employer's application URL) or skip/no_apply_button
 
 All commands print a single JSON object to stdout. Errors -> {"status":"error","error":...}.
 `apply` errors also carry "screenshot" + "html" (job_engine/screenshots/<id>_error.{png,html})
@@ -30,6 +32,8 @@ overlaid by --answers (per-job wins).
 from __future__ import annotations
 import argparse, json, os, random, re, sys, time
 from pathlib import Path
+
+from ats_tools import detect_ats  # same dir; on sys.path when run as a script
 
 try:
     from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
@@ -74,6 +78,10 @@ SEL = {
     # Easy Apply trigger is now an <a aria-label="Easy Apply to this job"> in LinkedIn's
     # current UI (was button.jobs-apply-button). Keep button variants as fallbacks.
     "easy_apply_btn": "a[aria-label*='Easy Apply'], button[aria-label*='Easy Apply'], button.jobs-apply-button",
+    # External-apply control (2026-11): <button aria-label="Apply on company website">Apply</button>.
+    # It does NOT match easy_apply_btn. Clicking it opens a "Share your profile?" dialog whose
+    # "Continue" link (target=_blank, via /safety/go/) opens the employer site in a new tab.
+    "external_apply_name": r"^\s*apply\b(?!.*easy)",
     # 2026-11: the modal is a native <dialog open> with hashed classes (no role attr, no
     # artdeco classes). Fields are found by tagging controls in _read_groups, buttons by
     # accessible name (scoped to the modal — page carousels also have a 'Next').
@@ -405,6 +413,34 @@ def _attach_resume(page, modal, resume):
     except Exception:
         return False
 
+def _capture_external(page):
+    """Click LinkedIn's external Apply control and return the settled non-LinkedIn URL, or None."""
+    name = re.compile(SEL["external_apply_name"], re.I)
+    ctx = page.context
+    btn = page.get_by_role("button", name=name).or_(page.get_by_role("link", name=name)).first
+    try:
+        with ctx.expect_page(timeout=4000) as pi:  # some jobs open the employer tab directly
+            btn.click()
+        target = pi.value
+    except PWTimeout:
+        target = page
+        # Usual path: a "Share your profile?" dialog; its Continue link opens a new tab.
+        cont = page.locator(SEL["modal"]).get_by_role("link", name=re.compile(r"^\s*continue\s*$", re.I))
+        if cont.count():
+            try:
+                with ctx.expect_page(timeout=15000) as pi:
+                    cont.first.click()
+                target = pi.value
+            except PWTimeout:
+                pass  # same-tab navigation
+    for _ in range(20):
+        try: target.wait_for_load_state("domcontentloaded", timeout=1000)
+        except Exception: pass
+        if detect_ats(target.url)["ats"] != "linkedin" and target.url.startswith("http"):
+            return target.url
+        time.sleep(1)
+    return None
+
 def cmd_apply(args):
     profile = {}
     pf = JOB_ENGINE / "profile.yaml"
@@ -422,9 +458,7 @@ def cmd_apply(args):
         if not is_logged_in(page):
             ctx.close(); print(json.dumps({"status": "blocked", "reason": "not_logged_in"})); return
         page.goto(args.job_url, wait_until="domcontentloaded"); human_delay()
-        if page.locator(SEL["easy_apply_btn"]).count() == 0:
-            ctx.close(); print(json.dumps({"status": "skip", "reason": "no_easy_apply"})); return
-        page.locator(SEL["easy_apply_btn"]).first.click(); human_delay()
+        easy = page.locator(SEL["easy_apply_btn"]).count() > 0
         resume = str(Path(args.resume).resolve()) if args.resume and Path(args.resume).exists() else ""
         resume_attached = None  # None = no resume step seen / no --resume given
         unanswered = []
@@ -447,6 +481,14 @@ def cmd_apply(args):
                 html.write_text(src, encoding="utf-8")
             except Exception: pass
             return done({"status": "error", "error": error, "screenshot": png, "html": str(html), **extra})
+        if not easy:
+            ext = re.compile(SEL["external_apply_name"], re.I)
+            if not (page.get_by_role("button", name=ext).count() or page.get_by_role("link", name=ext).count()):
+                return done({"status": "skip", "reason": "no_apply_button"})
+            url = _capture_external(page)
+            if not url: return fail("external_capture_failed")
+            return done({"status": "external", "url": url, **detect_ats(url)})
+        page.locator(SEL["easy_apply_btn"]).first.click(); human_delay()
         for step in range(15):  # safety bound on modal steps
             modal = page.locator(SEL["modal"]).first
             try: modal.wait_for(timeout=8000)
