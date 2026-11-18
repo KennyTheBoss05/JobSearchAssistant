@@ -5,13 +5,14 @@ ats_tools.py — offline helpers for external-ATS applies. Each subcommand print
   detect  --url U            -> {"ats","host","tenant"}
   seen    --id ID [--url U]  -> {"seen":bool,"reason":str|null}   (reads applications_log.jsonl)
   account --site URL|host    -> {"site","email","password","created":bool}  (job_engine/accounts.json)
-  inbox   --from-domain D [...] [--minutes 15] [--wait 120] | --check  -> {"status","code","link"}  (Gmail IMAP)
+  inbox   --from-domain D [...] [--minutes 15] [--wait 90] | --check  -> {"status","code","link"}  (Gmail IMAP)
   selftest
+Exit code: 1 when the JSON has status "error", else 0.
 """
 from __future__ import annotations
 import argparse, datetime, email, email.utils, html, imaplib, json, os, re, secrets, string, sys, time
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 HERE = Path(__file__).resolve()
 
@@ -48,9 +49,15 @@ def detect_ats(url: str) -> dict:
             return {"ats": ats, "host": host, "tenant": tenant}
     return {"ats": "unknown", "host": host, "tenant": None}
 
+TRACKING = ("ref", "source", "src", "trk", "gh_src", "lever-source", "lever-origin")
+
 def norm_url(url: str) -> str:
-    u = urlsplit(url)
-    return f"{u.scheme}://{(u.hostname or '').lower()}{u.path.rstrip('/')}"
+    """Dedup key: https, lowercase host, no trailing slash/fragment, tracking params dropped,
+    job-identifying params (gh_jid, job=...) kept, sorted."""
+    u = urlsplit(url if "//" in url else "//" + url)
+    q = sorted((k, v) for k, v in parse_qsl(u.query, keep_blank_values=True)
+               if not (k.lower().startswith("utm_") or k.lower() in TRACKING))
+    return f"https://{(u.hostname or '').lower()}{u.path.rstrip('/')}" + (f"?{urlencode(q)}" if q else "")
 
 def site_key(url_or_host: str) -> str:
     return detect_ats(url_or_host)["host"]
@@ -72,15 +79,17 @@ def is_seen(rows: list, job_id: str, url: str | None = None) -> str | None:
             return "external_url already applied"
     return None
 
-def read_log() -> list:
-    log = JE / "applications_log.jsonl"
+def read_log(log: Path | None = None) -> list:
+    log = log or JE / "applications_log.jsonl"
     rows = []
     if log.exists():
         for line in log.read_text(encoding="utf-8").splitlines():
             try:
-                rows.append(json.loads(line))
+                r = json.loads(line)
             except ValueError:
                 continue
+            if isinstance(r, dict):  # a stray `null` / list line must not crash dedup
+                rows.append(r)
     return rows
 
 # ----------------------------------------------------------------------------- accounts
@@ -131,15 +140,17 @@ CODE = re.compile(r"\b(\d{4,8}|\d{2,4}[- ]\d{2,4})\b|\b(?=[A-Z0-9]*\d)[A-Z0-9]{6
 def extract_code_link(body: str, domains: list) -> dict:
     text = re.sub(r"<(style|script)\b.*?</\1>", " ", body, flags=re.S | re.I)
     text = re.sub(r"<[^>]+>", " ", html.unescape(text))
-    code = None
+    text = re.sub(r"https?://\S+", " ", text)  # URL digits (uid=..., ids) are never the code
+    cands = []
     for k in KEYWORD.finditer(text):
         for m in CODE.finditer(text[k.end():k.end() + 80]):
             digits = re.sub(r"[- ]", "", m.group(0))
-            if m.group(1) is None or 4 <= len(digits) <= 8:
-                code = digits if m.group(1) else m.group(0)
-                break
-        if code:
-            break
+            if m.group(1) is not None and not (4 <= len(digits) <= 8):
+                continue
+            if re.fullmatch(r"(19|20)\d\d", digits):  # a year, not a code
+                continue
+            cands.append(digits if m.group(1) else m.group(0))
+    code = next((c for c in cands if c.isdigit() and len(c) == 6), cands[0] if cands else None)
     raw = html.unescape(body)
     urls = re.findall(r'href=["\'](https://[^"\']+)', raw, re.I) + re.findall(r'https://[^\s"\'<>]+', raw)
     urls = [u.rstrip(".,;)") for u in urls]
@@ -158,37 +169,51 @@ def msg_body(msg) -> str:
                     return (p.get_payload(decode=True) or b"").decode("utf-8", "replace")
     return ""
 
+def imap_query(domains: list, since: str) -> str:
+    """SINCE <date> plus FROM per domain, OR-combined (IMAP OR is binary prefix)."""
+    q = [f'FROM "{d}"' for d in domains]
+    while len(q) > 1:
+        q = [f"OR {q[0]} {q[1]}"] + q[2:]
+    return f"SINCE {since} {q[0]}"
+
 def cmd_inbox(a):
     email_id = (load_yaml(JE / "profile.yaml").get("identity") or {}).get("email")
     cred = gmail_creds(read_env(JE / ".env"), email_id)
     if "error" in cred:
         return {"status": "error", "error": cred["error"]}
-    if not a.check and not a.from_domain:
+    doms = [d.strip().lower() for d in (a.from_domain or [])]
+    if not a.check and not doms:
         return {"status": "error", "error": "no_from_domain"}
+    if any(not re.fullmatch(r"[a-z0-9.-]+", d) for d in doms):  # goes into the IMAP command
+        return {"status": "error", "error": "bad_from_domain"}
     deadline = time.monotonic() + a.wait
     try:
-        box = imaplib.IMAP4_SSL("imap.gmail.com", 993)
+        box = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=20)
         try:
             box.login(cred["user"], cred["pw"])
             if a.check:
                 return {"status": "ok"}
             box.select("INBOX", readonly=True)
             while True:
-                cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=a.minutes)
-                since = cutoff.strftime("%d-%b-%Y")
-                ids = box.search(None, "SINCE", since)[1][0].split()
+                now = datetime.datetime.now(datetime.timezone.utc)
+                cutoff = now - datetime.timedelta(minutes=a.minutes)
+                since = (now - datetime.timedelta(days=1)).strftime("%d-%b-%Y")  # SINCE is date-only, server tz
+                ids = box.search(None, imap_query(doms, since))[1][0].split()
                 for i in reversed(ids[-30:]):  # newest first
-                    msg = email.message_from_bytes(box.fetch(i, "(BODY.PEEK[])")[1][0][1])
+                    if time.monotonic() > deadline:
+                        return {"status": "none"}
+                    hdr = email.message_from_bytes(box.fetch(i, "(BODY.PEEK[HEADER.FIELDS (FROM DATE)])")[1][0][1])
                     try:
-                        when = email.utils.parsedate_to_datetime(msg["Date"])
+                        when = email.utils.parsedate_to_datetime(hdr["Date"])
                         if when.tzinfo is None:
                             when = when.replace(tzinfo=datetime.timezone.utc)
                     except Exception:
                         continue
-                    if when < cutoff or not sender_matches(msg.get("From", ""), a.from_domain):
+                    if when < cutoff or not sender_matches(hdr.get("From", ""), doms):
                         continue
+                    msg = email.message_from_bytes(box.fetch(i, "(BODY.PEEK[])")[1][0][1])
                     try:
-                        r = extract_code_link(msg_body(msg), a.from_domain)
+                        r = extract_code_link(msg_body(msg), doms)
                     except Exception:
                         continue
                     if r["code"] or r["link"]:
@@ -237,6 +262,18 @@ def cmd_selftest(a=None):
     assert detect_ats("https://greenhouse.io.evil.com/jobs/1")["ats"] == "unknown"
     assert detect_ats("https://careers.acme.com/jobs/1")["ats"] == "unknown"
     assert norm_url("https://Jobs.Lever.co/acme/abc/?utm_source=linkedin#apply") == "https://jobs.lever.co/acme/abc"
+    assert norm_url("https://acme.com/careers?gh_jid=111") != norm_url("https://acme.com/careers?gh_jid=222")
+    assert norm_url("https://acme.taleo.net/careersection/2/jobdetail.ftl?job=111&src=JB-1") \
+           != norm_url("https://acme.taleo.net/careersection/2/jobdetail.ftl?job=222")
+    assert norm_url("https://acme.taleo.net/jobdetail.ftl?src=x&job=111&lang=en") == norm_url("https://acme.taleo.net/jobdetail.ftl?lang=en&job=111")
+    assert norm_url("http://jobs.lever.co/acme/abc") == norm_url("https://jobs.lever.co/acme/abc") == norm_url("jobs.lever.co/acme/abc")
+    assert norm_url("https://jobs.lever.co/acme/abc?lever-source=LinkedIn&ref=x&gh_src=y") == "https://jobs.lever.co/acme/abc"
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        lp = Path(td) / "log.jsonl"
+        lp.write_text('null\n[1]\n"x"\n5\nnot json\n{"id": "7", "status": "submitted"}\n', encoding="utf-8")
+        log_rows = read_log(lp)
+        assert log_rows == [{"id": "7", "status": "submitted"}] and is_seen(log_rows, "7")
     rows = [{"id": "1", "status": "skipped", "skip_reason": "unknown required: q"},
             {"id": "1", "status": "submitted"},
             {"id": "2", "status": "ready_for_review"},
@@ -269,6 +306,12 @@ def cmd_selftest(a=None):
     assert r["link"] == "https://acme.wd5.myworkday.com/verify?t=1"
     assert extract_code_link("<style>.code{margin:10px 2000}</style><p>Your verification code</p><b>731904</b>", ["acme.com"])["code"] == "731904"
     assert extract_code_link("see https://evil.com/?r=acme.com", ["acme.com"])["link"] is None
+    r = extract_code_link("Please verify your email: https://acme.com/verify?uid=12345678", ["acme.com"])
+    assert r["code"] is None and r["link"] == "https://acme.com/verify?uid=12345678"
+    assert extract_code_link("Your code expires in 2026. Code: 482913", ["acme.com"])["code"] == "482913"
+    assert extract_code_link("Verification code 4821, ref 99881", ["acme.com"])["code"] == "4821"   # no 6-digit run: first wins
+    assert imap_query(["a.com"], "17-Nov-2026") == 'SINCE 17-Nov-2026 FROM "a.com"'
+    assert imap_query(["a.com", "b.io", "c.co"], "17-Nov-2026") == 'SINCE 17-Nov-2026 OR OR FROM "a.com" FROM "b.io" FROM "c.co"'
     return {"status": "ok"}
 
 def main():
@@ -278,7 +321,7 @@ def main():
     e = sub.add_parser("seen"); e.add_argument("--id", required=True); e.add_argument("--url")
     c = sub.add_parser("account"); c.add_argument("--site", required=True)
     i = sub.add_parser("inbox"); i.add_argument("--from-domain", action="append"); i.add_argument("--check", action="store_true")
-    i.add_argument("--minutes", type=int, default=15); i.add_argument("--wait", type=int, default=120)
+    i.add_argument("--minutes", type=int, default=15); i.add_argument("--wait", type=int, default=90)
     sub.add_parser("selftest")
     a = ap.parse_args()
     cmds = {"detect": cmd_detect, "seen": cmd_seen, "account": cmd_account, "inbox": cmd_inbox, "selftest": cmd_selftest}
@@ -287,6 +330,7 @@ def main():
     except Exception as ex:
         out = {"status": "error", "error": type(ex).__name__, "detail": str(ex)}
     print(json.dumps(out, ensure_ascii=False))
+    sys.exit(1 if out.get("status") == "error" else 0)
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
