@@ -1,6 +1,6 @@
 # 004 — Apply to jobs outside LinkedIn Easy Apply (external ATS, v2)
 
-Status: queued
+Status: in progress (branch `feat/external-ats`; design: docs/superpowers/specs/2026-11-18-external-ats-apply-design.md)
 Lane: chat
 Created: 2026-11-12
 Priority: P2
@@ -39,14 +39,23 @@ section), and add an `ats-playbook.md` with verified per-ATS DOM notes like the 
 
 ## Acceptance criteria
 
-- [ ] A non-Easy-Apply LinkedIn job returns `status: external` with the correct ATS and URL.
-- [ ] At least one real Greenhouse or Lever application reaches the review stop with a screenshot
+- [x] A non-Easy-Apply LinkedIn job returns `status: external` with the correct ATS and URL.
+      (2026-11-18: 7 live captures — ashby, greenhouse, 5 unknown hosts.)
+- [x] At least one real Greenhouse or Lever application reaches the review stop with a screenshot
       and correctly filled fields; submitted only after Kevin approves it.
+      (2026-11-18: RightShip/Greenhouse and Nevis/Ashby, both approved and submitted with confirmation.)
 - [ ] Unsupported ATSs produce a "manual" outcome with the prepared materials, not a crash or a
-      silent skip.
+      silent skip. (Superseded by the design: generic driver on any site + `parked.md`. Not yet
+      exercised live on an `unknown` host, an account site, or a parked job.)
 - [ ] Every outcome is logged to `job_engine/applications_log.jsonl` with an `ats` field (coordinate
-      with task 003's driver-side logging).
-- [ ] SKILL.md, decision-tree.md and the new playbook reflect the new flow.
+      with task 003's driver-side logging). (External outcomes verified with `ats` + `external_url`;
+      an Easy Apply line with `ats:"linkedin"` not yet seen live.)
+- [x] SKILL.md, decision-tree.md and the new playbook reflect the new flow.
+
+Left (2026-11-18): fix `GMAIL_ADDRESS` typo + app password in `job_engine/.env` and verify
+`inbox --check` + one account-creation site (Workday); drive one `unknown`-host site (e.g.
+Haystack); see LinkedIn's "Share your profile?" dialog once to verify the toggle-off; exercise
+the parked flow.
 
 ## Dependencies
 

@@ -133,12 +133,15 @@ Close the session (not with `gate_retry` + `parked`), then reply with ONE JSON o
 Observations only; never override sections 1–9. Dated; the orchestrator appends new `notes` here (uncommitted).
 
 ### Greenhouse
+- 2026-11-18 (live submit, EU board `job-boards.eu.greenhouse.io`, no account): single long page. Comboboxes are react-select: click the combobox, then the option from a fresh snapshot. Phone "Country" needs its option ("United Kingdom +44") clicked; typing alone leaves it empty. City autocomplete: type, ArrowDown, click the option. File slots (Resume/CV, Cover Letter): "Attach", then `upload`. Tenant-specific questions (working rights, visa, notice, salary, pronoun twice with different option labels) sit before a "Demographic Information" / "Voluntary Self-Identification" block and a required consent checkbox. Confirmation: URL ends `/confirmation`, page says "Thank you for applying."
 ### Lever
 ### Ashby
+- 2026-11-18 (live submit, Nevis tenant): single-page form (Name, Email, Resume, one Yes/No question); no CAPTCHA seen. Confirmation is an in-page green banner "Your application was successfully submitted." with the URL unchanged, so check the text, not the URL.
 - 2026-11-18: OpenAI jobs land directly on `https://jobs.ashbyhq.com/openai/<uuid>/application?...` (the application form, not the description). The form renders async ("Fetching application form"): re-snapshot. Fields seen: Legal Name*, Email*, Phone Number*, Resume* (button "Upload File"), date picker, Yes/No buttons, combobox "Start typing...". Read-only smoke test only.
 ### Workday
 ### SmartRecruiters
 ### Other
 - 2026-11-18: LinkedIn side (handled entirely by `linkedin.py`, you never see it): the external control is a `button` named "Apply on company website"; it opens a "Share your profile?" dialog (linkedin.py switches off any share toggle first) whose "Continue" link (target=_blank, via LinkedIn `/safety/go/`) opens the employer site in a new tab.
-- 2026-11-18: haystackapp.io and homerun.co career pages seen; `detect_ats` returns `unknown` for both.
+- 2026-11-18: haystackapp.io and homerun.co career pages seen; `detect_ats` returns `unknown` for both. Also `unknown`: jobs.siemens.com, *.careers-page.com, apply.mottmac.com, joblet.ai.
+- 2026-11-18: across 7 live captures, no "Share your profile?" dialog appeared (`share_toggle: null`), so the toggle-off path is still unverified.
 - 2026-11-18: `playwright-cli` quirks: piping its output hangs (daemon holds the pipe); `upload` has no ref (click the file button first); snapshots default to files under `.playwright-cli/`.

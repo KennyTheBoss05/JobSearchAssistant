@@ -163,8 +163,9 @@ item is ticked. Scheduled runs only append.
 Loop step 3b gains a branch on `linkedin.py apply` → `external`:
 1. `ats_tools.py detect` (if the driver didn't already set `ats`); skip hosts in
    `external.skip_hosts`.
-2. Dedup also by external URL (normalized, query string dropped) — the same req is often posted
-   under several LinkedIn ids.
+2. Dedup also by external URL (normalized: https, tracking params like `utm_*`/`ref`/`src`
+   dropped, job params like `gh_jid` kept — amended after final review, since dropping the whole
+   query merged distinct jobs) — the same req is often posted under several LinkedIn ids.
 3. Tailoring is unchanged (step 3a). The cover letter is generated only if the subagent reports a
    slot — so the subagent returns `{"status":"needs_cover_letter"}` once, the orchestrator makes it,
    re-dispatches.
