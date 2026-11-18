@@ -97,7 +97,7 @@ Allowed in both modes (an account is not an application).
 ## 6. Gates (park, do not push through)
 Visible CAPTCHA challenge (I'm-not-a-robot / Turnstile checkbox, image or audio puzzle, "verify you are human" interstitial), SMS/phone code, ID/document upload, video interview, timed assessment:
 screenshot `_ext_parked`, return `parked` with `reason` one of
-`captcha | sms_verification | id_upload | video_interview | assessment`. **Never attempt to solve a CAPTCHA.**
+`captcha | sms_verification | id_upload | video_interview | assessment | account_needs_email | account_exists` (the last two come from section 5). **Never attempt to solve a CAPTCHA.**
 An invisible reCAPTCHA/hCaptcha badge alone is not a gate: carry on. A submit that bounces with a
 bot/"verify"/"suspicious activity" error -> `parked`, `reason:"captcha"`. Leave the tailored PDFs and `answers_file` as they are (the orchestrator parks the job for a human).
 
@@ -119,7 +119,7 @@ Close the session, then reply with ONE JSON object and nothing else:
  "reason": null, "questions": null, "screenshot": "job_engine/screenshots/<job_id>_ext_<...>.png",
  "account_created": false, "final_url": null, "notes": []}
 ```
-- `reason`: set for `parked` (section 6), `skip` (`driver: budget`, `driver: stuck <what>`, `unknown required: <q>`, `offsite: <host>`, `job_closed`), `blocked`, `error`; else null.
+- `reason`: set for `parked` (exactly one of the section 6 list, which includes `account_needs_email` and `account_exists`), `skip` (`driver: budget`, `driver: stuck <what>`, `unknown required: <q>`, `offsite: <host>`, `job_closed`), `blocked`, `error`; else null.
 - `questions`: only for `needs_answers` (list of question labels).
 - `blocked`: the browser/site is unusable for a reason beyond this job (CLI missing, profile locked, site-wide outage). `error`: the CLI failed unexpectedly (include the message in `reason`).
 - `notes`: short, site-specific lessons worth keeping (e.g. "Workday: 'Use my last application' skips step 2"). Empty list if nothing new. No personal data.
