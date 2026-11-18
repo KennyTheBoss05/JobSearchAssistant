@@ -21,8 +21,9 @@ Commands:
   login                      -> opens headed browser; waits until you're logged in
   search  ...                -> scrape job listings as JSON
   apply   ...                -> walk one Easy Apply modal (the core loop); a non-Easy-Apply job
-                                returns {"status":"external","url","ats","host","tenant"} (the
-                                employer's application URL) or skip/no_apply_button
+                                returns {"status":"external","url","ats","host","tenant",
+                                "share_toggle"} (the employer's application URL; any "share
+                                your profile" toggle is switched off first) or skip/no_apply_button
 
 All commands print a single JSON object to stdout. Errors -> {"status":"error","error":...}.
 `apply` errors also carry "screenshot" + "html" (job_engine/screenshots/<id>_error.{png,html})
@@ -413,11 +414,33 @@ def _attach_resume(page, modal, resume):
     except Exception:
         return False
 
+def _share_off(dialog) -> str:
+    """Turn off any 'share my profile' checkbox/switch in the dialog (we may never apply).
+    Best-effort: returns switched_off | already_off | none | failed, never raises."""
+    try:
+        tog = dialog.get_by_role("checkbox").or_(dialog.get_by_role("switch"))
+        if not tog.count(): return "none"
+        state = "already_off"
+        for i in range(tog.count()):
+            t = tog.nth(i)
+            if not t.is_checked(): continue
+            try: t.uncheck(timeout=3000)
+            except Exception:
+                try: t.click(force=True, timeout=3000)
+                except Exception: pass
+            if t.is_checked(): return "failed"
+            state = "switched_off"
+        return state
+    except Exception:
+        return "failed"
+
 def _capture_external(page):
-    """Click LinkedIn's external Apply control and return the settled non-LinkedIn URL, or None."""
+    """Click LinkedIn's external Apply control. Returns (settled non-LinkedIn URL or None,
+    share-toggle state from _share_off, or None when no share dialog appeared)."""
     name = re.compile(SEL["external_apply_name"], re.I)
     ctx = page.context
     btn = page.get_by_role("button", name=name).or_(page.get_by_role("link", name=name)).first
+    share = None
     try:
         with ctx.expect_page(timeout=4000) as pi:  # some jobs open the employer tab directly
             btn.click()
@@ -425,8 +448,10 @@ def _capture_external(page):
     except PWTimeout:
         target = page
         # Usual path: a "Share your profile?" dialog; its Continue link opens a new tab.
-        cont = page.locator(SEL["modal"]).get_by_role("link", name=re.compile(r"^\s*continue\s*$", re.I))
+        dialog = page.locator(SEL["modal"])
+        cont = dialog.get_by_role("link", name=re.compile(r"^\s*continue\s*$", re.I))
         if cont.count():
+            share = _share_off(dialog)
             try:
                 with ctx.expect_page(timeout=15000) as pi:
                     cont.first.click()
@@ -441,14 +466,14 @@ def _capture_external(page):
         except Exception: pass
         url = target.url
         if url.startswith("http") and detect_ats(url)["ats"] != "linkedin":
-            if detect_ats(url)["ats"] != "unknown": return url
+            if detect_ats(url)["ats"] != "unknown": return url, share
             stable = stable + 1 if url == last else 0
             last = url
-            if stable >= 2: return url  # custom career pages legitimately stay "unknown"
+            if stable >= 2: return url, share  # custom career pages legitimately stay "unknown"
         else:
             last, stable = None, 0
         time.sleep(1)
-    return last  # cap reached: last non-LinkedIn URL seen (None if never left LinkedIn)
+    return last, share  # cap reached: last non-LinkedIn URL seen (None if never left LinkedIn)
 
 def cmd_apply(args):
     profile = {}
@@ -495,11 +520,11 @@ def cmd_apply(args):
             try:  # any Playwright error (closed page etc.) must still reach fail() so ctx closes
                 if not (page.get_by_role("button", name=ext).count() or page.get_by_role("link", name=ext).count()):
                     return done({"status": "skip", "reason": "no_apply_button"})
-                url = _capture_external(page)
+                url, share = _capture_external(page)
             except Exception as e:
                 return fail("external_capture_failed", detail=str(e)[:300])
             if not url: return fail("external_capture_failed")
-            return done({"status": "external", "url": url, **detect_ats(url)})
+            return done({"status": "external", "url": url, **detect_ats(url), "share_toggle": share})
         page.locator(SEL["easy_apply_btn"]).first.click(); human_delay()
         for step in range(15):  # safety bound on modal steps
             modal = page.locator(SEL["modal"]).first
