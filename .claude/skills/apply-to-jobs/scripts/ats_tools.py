@@ -129,7 +129,8 @@ KEYWORD = re.compile(r"code|verification|verify|one-time|passcode|otp", re.I)
 CODE = re.compile(r"\b(\d{4,8}|\d{2,4}[- ]\d{2,4})\b|\b(?=[A-Z0-9]*\d)[A-Z0-9]{6,8}\b")
 
 def extract_code_link(body: str, domains: list) -> dict:
-    text = re.sub(r"<[^>]+>", " ", html.unescape(body))
+    text = re.sub(r"<(style|script)\b.*?</\1>", " ", body, flags=re.S | re.I)
+    text = re.sub(r"<[^>]+>", " ", html.unescape(text))
     code = None
     for k in KEYWORD.finditer(text):
         for m in CODE.finditer(text[k.end():k.end() + 80]):
@@ -151,7 +152,10 @@ def msg_body(msg) -> str:
     for want in ("text/plain", "text/html"):
         for p in parts:
             if p.get_content_type() == want:
-                return p.get_payload(decode=True).decode(p.get_content_charset() or "utf-8", "replace")
+                try:
+                    return (p.get_payload(decode=True) or b"").decode(p.get_content_charset() or "utf-8", "replace")
+                except LookupError:  # unknown charset
+                    return (p.get_payload(decode=True) or b"").decode("utf-8", "replace")
     return ""
 
 def cmd_inbox(a):
@@ -183,7 +187,10 @@ def cmd_inbox(a):
                         continue
                     if when < cutoff or not sender_matches(msg.get("From", ""), a.from_domain):
                         continue
-                    r = extract_code_link(msg_body(msg), a.from_domain)
+                    try:
+                        r = extract_code_link(msg_body(msg), a.from_domain)
+                    except Exception:
+                        continue
                     if r["code"] or r["link"]:
                         return {"status": "ok", **r}
                 if time.monotonic() + 10 > deadline:
@@ -260,6 +267,7 @@ def cmd_selftest(a=None):
     r = extract_code_link('<a href="https://evil.com/?r=acme.com">x</a> <a href="https://acme.wd5.myworkday.com/verify?t=1">Verify</a>',
                           ["myworkday.com"])
     assert r["link"] == "https://acme.wd5.myworkday.com/verify?t=1"
+    assert extract_code_link("<style>.code{margin:10px 2000}</style><p>Your verification code</p><b>731904</b>", ["acme.com"])["code"] == "731904"
     assert extract_code_link("see https://evil.com/?r=acme.com", ["acme.com"])["link"] is None
     return {"status": "ok"}
 
