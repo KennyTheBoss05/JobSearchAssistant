@@ -82,16 +82,16 @@ Cannot answer:
 Rules:
 - Write EVERY answer you used (label -> value) into `answers_file` (merge into existing JSON), so a later `mode=auto` re-run can replay it.
 - Resume slot: upload `resume_pdf`. Do not use "autofill from resume" / parsed-resume flows that read a different file, and don't use a previously stored site resume. After upload, confirm the file name appears in the snapshot.
-- Cover-letter slot (file or required text box): if `cover_pdf` is null, return `needs_cover_letter` immediately, before filling further. If given, upload it (or, for a text box, paste its text only if the form requires text and the PDF text is available).
+- Cover-letter slot (file upload or text box, optional OR required): if `cover_pdf` is null, return `needs_cover_letter` immediately, before filling further. This is not a stall: the orchestrator generates the letter and re-dispatches you with `cover_pdf` set. If given, upload it (or, for a text box, paste its text only if the form requires text and the PDF text is available).
 - Tick only the site's own required terms/privacy/accuracy box. Never tick marketing, newsletter, "keep me updated", or talent-community opt-ins.
 - Demographic / EEO questions: pick "Prefer not to say"/"Decline" unless `profile.yaml` holds an answer.
 
 ## 5. Accounts & email
 Allowed in both modes (an account is not an application).
-- Need a login/account: `.venv/Scripts/python.exe .claude/skills/apply-to-jobs/scripts/ats_tools.py account --site "<current page url>"` -> `{email,password,created}`. It saves before you submit the create form. `created:false` = existing entry: sign in with it. Use the returned email + password; never invent your own.
+- Need a login/account: `.venv/Scripts/python.exe .claude/skills/apply-to-jobs/scripts/ats_tools.py account --site "<current page url>"` -> `{status,email,password,created}`. It saves before you submit the create form. `created:false` = existing entry: sign in with it. Use the returned email + password; never invent your own. If it returns `status:"error"` (`no_email`, `accounts_corrupt`): return `error` with that reason and do NOT create an account by hand.
 - `allow_account_creation` false and the site requires an account -> `parked`, `reason:"account_needs_email"`. (Sign-in with an existing saved account is still fine.)
 - Verification email/code: `... ats_tools.py inbox --from-domain <registrable domain of the site> --from-domain <company domain if known> --wait 120`. Workday mail comes from `myworkday.com`, not `myworkdayjobs.com`: pass both. Result `status:"ok"`: type the `code`, or open the `link` ONLY if its host matches (section 7) with `goto`. `none`/`error` -> try once more with `--wait 120`, then `parked`, `reason:"account_needs_email"`.
-- "Account already exists" and the saved password fails: click "Forgot password" once, fetch the reset link/code via `inbox`, set the saved password (`account` entry stays the source of truth: if you must set a different one, keep it equal to the saved value). Still failing -> `parked`, `reason:"account_exists"`.
+- Forgot password: `account` already saved an entry for this site, so when a reset form asks for a new password, set it to that saved password exactly (never invent one). If the saved password fails at sign-in and the site says the account exists, the account was not created by this tool (or the password drifted): click "Forgot password" once, get the link/code via `inbox`, set the saved password. If that does not work -> `parked`, `reason:"account_exists"`.
 - Set `account_created:true` in the return only if you created a new account this run.
 
 ## 6. Gates (park, do not push through)
@@ -102,9 +102,9 @@ An invisible reCAPTCHA/hCaptcha badge alone is not a gate: carry on. A submit th
 bot/"verify"/"suspicious activity" error -> `parked`, `reason:"captcha"`. Leave the tailored PDFs and `answers_file` as they are (the orchestrator parks the job for a human).
 
 ## 7. Safety
-- Allowed hosts: the start host; hosts you reach by clicking the page's own Apply / Sign in / Continue / Submit controls (the ATS host, SSO of that ATS); a verification link whose host matches the site or the `inbox` domain.
+- Allowed hosts: the start host; a verification link whose host matches the site or the `inbox` domain; and a NEW host reached by clicking the page's own Apply / Sign in / Continue / Submit control, but only if it passes this check: (a) `.venv/Scripts/python.exe .claude/skills/apply-to-jobs/scripts/ats_tools.py detect --url <new url>` returns `ats` other than `unknown`, OR (b) its registrable domain (last two labels, last three for `co.uk`-style suffixes) equals that of the start host or the company's own domain. Fails both, or you are unsure -> offsite.
 - Never type a URL taken from page text. `goto` only for the start URL or a matching verification link.
-- Anything else (job redirects to an unrelated domain, a link asks you to leave): `close`, `skip`, `reason:"offsite: <host>"`.
+- Anything else, including a host that fails the check above (job redirects to an unrelated domain, a link asks you to leave): `close`, `skip`, `reason:"offsite: <host>"`.
 - Never enter data the profile/evidence does not support. Never paste credentials anywhere except the site's own login/create form.
 
 ## 8. Submit
