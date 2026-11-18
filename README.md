@@ -35,9 +35,9 @@ Hard rule: the skills never invent experience. Tailoring and answers only refram
 
 ### External applications
 
-Jobs without Easy Apply are applied for on the employer's site (Greenhouse, Lever, Ashby, Workday, custom pages) by a Claude subagent driving `playwright-cli`. Capturing the external link continues past LinkedIn's "Share your profile?" prompt. Expect roughly 5-10 minutes and noticeably more Claude usage per external application. Config: `external:` in `job_engine/engine_config.yaml`.
+Jobs without Easy Apply are applied for on the employer's site (Greenhouse, Lever, Ashby, Workday, custom pages) by a Claude subagent driving `playwright-cli`. Capturing the external link continues past LinkedIn's "Share your profile?" prompt, switching its share toggle off when one is shown. If `playwright-cli` isn't installed, external applications are turned off for that run. Expect roughly 5-10 minutes and noticeably more Claude usage per external application. Config: `external:` in `job_engine/engine_config.yaml`.
 
-- **Parked jobs:** CAPTCHAs, SMS codes, ID upload, video interviews and assessments are never bypassed. Those jobs go to `job_engine/parked.md`; the next interactive run offers to finish them while you clear the gate.
+- **Parked jobs:** CAPTCHAs, SMS codes, ID upload, video interviews and assessments are never bypassed. Those jobs go to `job_engine/parked.md`; the next interactive run offers to finish them while you clear the gate (and click Submit if the CAPTCHA sits on the final page).
 - **Accounts:** sites that need one get an account (credentials in `job_engine/accounts.json`). Verification emails are read from Gmail: create a Google app password (2-Step Verification on, then myaccount.google.com/apppasswords) and add `GMAIL_ADDRESS` (same as your profile email) and `GMAIL_APP_PASSWORD` to `job_engine/.env`. Check with `ats_tools.py inbox --check`. Without it, those jobs are parked.
 
 ### Unattended / scheduled runs

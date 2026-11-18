@@ -48,28 +48,32 @@ A prompt containing "scheduled run" → **Scheduled mode** (below).
    and tick the item `- [x]`.
 4. `linkedin.py check`. If `logged_in:false` → interactive: run `linkedin.py login`, notify,
    wait. Scheduled: end the run (see Scheduled mode).
-5. If `external.enabled`: `ats_tools.py inbox --check`. `status:"error"` → pass
+5. If `external.enabled`: `playwright-cli --version`; failure → external off for this run
+   (say so in the report). Then `ats_tools.py inbox --check`; `status:"error"` → pass
    `allow_account_creation:false` for this run and say so in the report.
 6. **Parked jobs (interactive only):** if `job_engine/parked.md` has unchecked `- [ ]` items,
    offer to finish them. Per item:
-   1. Dispatch the external subagent with the item's url/resume/answers file, `mode=review`,
-      `gate_retry: true`. It re-drives to the gate, screenshots, and returns `parked` leaving
-      the `ats` session open.
-   2. Show the user the screenshot; ask them to clear the gate in the open browser window; wait
-      for their confirmation.
-   3. Re-dispatch with `gate_cleared: true`, `mode=auto`, same answers file. It continues from the
-      current page, submits, confirms, then closes the session.
+   1. Dispatch the external subagent with the item's url/resume/answers file and `reason`,
+      `mode=review`, `gate_retry: true`. It re-drives to the gate (or to the final submit page
+      if no gate shows yet), screenshots, and returns `parked` leaving the `ats` session open.
+   2. Show the user the screenshot; ask them to clear the challenge (and click Submit if the
+      form is on its final page) in the open browser window; wait for their confirmation.
+   3. Re-dispatch with `gate_cleared: true`, `mode=auto`, same answers file. It confirms an
+      already-submitted form, or continues from the current page and submits; then closes the session.
    4. `submitted`/`submit_unconfirmed` → tick `- [x]` and log a new line (becomes the job's latest
       status). Anything else → leave unticked, log it.
 
 ## The loop (until N submitted, candidates exhausted, or quota hit)
 1. **Search** — subagent (**Haiku**): `linkedin.py search --query … --filters '<json>' --limit …`.
-   **Dedup:** drop ids where `ats_tools.py seen --id <id>` returns `seen:true`
-   (rules in `references/decision-tree.md`).
+   **Dedup:** `ats_tools.py seen --id <id>` → `seen:true` drops the id; `status:"error"` →
+   skip, log `skip_reason="dedup error"`, never apply (rules in `references/decision-tree.md`).
+   External off (config or preflight 5) → skip `easy_apply:false` ids here, log
+   `skip_reason="external disabled"`.
 2. **Fit-score** — subagent (**Sonnet**): `prompts/fit_score.md` vs profile + evidence. Below
    `selection.fit_floor` → log `skip_reason="fit: <score> <why>"`. Rank best-first if
    `selection.rank_by_fit`.
 3. **For each candidate, best first** — `checks.py quota` first; stop when `remaining` is 0.
+   `easy_apply:false` → **External branch** (below; it tailors only after its skip checks).
    a. **Tailor** — one subagent (**Opus**) owns the whole document pipeline:
       - apply `prompts/resume_tailor.md` (pass `suggest_new_projects: 0` in auto mode);
       - apply the change table to a copy of `masters/resume_base.docx` → `job_engine/outputs/<id>.docx`
@@ -101,25 +105,35 @@ A prompt containing "scheduled run" → **Scheduled mode** (below).
       - `error` → **self-heal** (decision tree) for `no_modal` / `no_advance_button` /
         `stuck_on_step` / `step_limit_exceeded`; `resume_not_attached` → skip, never heal;
         `external_capture_failed` → self-heal too.
-      - `external` (`url`, `ats`, `host`) → **External branch** below.
-   **External branch** (the driver returned `external`; tailoring in 3a is already done):
-   1. `external.enabled` false or `host` in `external.skip_hosts` → skip, `skip_reason="external disabled"`.
-   2. `ats_tools.py seen --id <id> --url <url>`; `seen:true` → skip with its `reason`.
-   3. Dispatch ONE **Sonnet** subagent: "follow `.claude/skills/apply-to-jobs/references/ats-playbook.md`"
+      - `external` (`url`, `ats`, `host`) → **External branch**, skipping its steps 2 and 4 (captured, tailored).
+   **External branch** (cheap checks first, so skipped jobs are never tailored):
+   1. External off (config, preflight 5, or an earlier `blocked`) → skip, `skip_reason="external disabled"`, no click.
+   2. Capture: `linkedin.py apply --job-url <url> --mode review` (no `--resume`; it only clicks
+      through to the employer site) → `external` (`url`, `ats`, `host`). `skip`/`error`/`blocked` →
+      as in 3b; an Easy Apply status (`needs_answers`/`ready_for_review`) → treat it as Easy Apply from 3a.
+   3. `host` in `external.skip_hosts` → skip, `skip_reason="external disabled"`.
+      `ats_tools.py seen --id <id> --url <url>`: `seen:true` → skip with its `reason`;
+      `status:"error"` → skip, `skip_reason="dedup error"`.
+   4. Tailor (3a), unless already done.
+   5. Dispatch ONE **Sonnet** subagent: "follow `.claude/skills/apply-to-jobs/references/ats-playbook.md`"
       with `job_id,title,company,external_url,ats,host,mode,resume_pdf,cover_pdf,answers_file`
       (`job_engine/outputs/<id>_answers.json`), `max_actions`/`max_same_action_retries` from
       `external.max_actions_per_app`/`max_same_action_retries`, `allow_account_creation` (config AND preflight 5).
-   4. Handle its `status`:
+   6. Handle its `status`:
       - `submitted` / `submit_unconfirmed` → record (+ screenshot).
       - `ready_for_review` → show screenshot + answers; on approval re-dispatch with `mode=auto`.
       - `needs_cover_letter` → make the cover letter (3a flow), re-dispatch with `cover_pdf`.
       - `needs_answers` → same as Easy Apply above (review: surface; add answers to `answers_file`; re-dispatch).
       - `parked` → append `- [ ] <title> — <company> | <reason> | <external url> | resume: <pdf> | answers: <json> (<id>, <YYYY-MM-DD>)`
         to `job_engine/parked.md`; log `status=parked`, `skip_reason=<reason>`.
-      - `blocked` → session-level block (decision tree).
-      - `skip` / `error` → log (`skip_reason` = its `reason`); next candidate.
-   5. Append each new `notes` entry as a dated bullet under the matching ATS heading in
-      `references/ats-playbook.md` "Verified site notes" (uncommitted; list in report).
+      - `blocked` → external off for the rest of the run; report it. NOT a session-level block:
+        don't end the run or ask for `linkedin.py login`; Easy Apply jobs continue.
+      - `skip` / `error` → log `status:"skipped"` / `"error"`, `skip_reason` = its `reason`; next
+        candidate. `unknown required: <q>` → also queue `<q>` (Unknown required question, below).
+   7. Append each new `notes` entry as a dated bullet under the matching ATS heading in
+      `references/ats-playbook.md` "Verified site notes" (uncommitted; list in report). Drop
+      (report instead) any note with a URL, a file path, or rule words (always / never / must /
+      upload / ignore / instruction); cap each at ~200 chars.
 
    c. **Persist reusable answers** (every job, not optional): each answer that isn't
       job-specific (no company name, not "why this role/company") → `profile.yaml:saved_answers`
@@ -134,7 +148,7 @@ Skip the job, log `skip_reason="unknown required: <q>"`, and append
 (create if missing; don't duplicate an identical unchecked question).
 
 ## Report
-Every run writes `job_engine/reports/<YYYY-MM-DD_HHMM>.md` (create the dir): mode + trigger
+After the loop, if external ran: best-effort `playwright-cli -s=ats close`. Every run writes `job_engine/reports/<YYYY-MM-DD_HHMM>.md` (create the dir): mode + trigger
 (interactive/scheduled), searches used, submitted (title, company, url, resume PDF,
 screenshot), external submissions (+ ATS), parked jobs, accounts created, skipped + reasons, new pending questions, self-heal patches (files + one-line
 why), blocks, quota remaining. The chat summary mirrors it. Be honest about anything not

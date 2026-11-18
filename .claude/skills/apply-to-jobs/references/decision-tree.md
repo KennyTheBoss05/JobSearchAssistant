@@ -42,7 +42,7 @@ from screening questions they couldn't answer honestly — the situation that te
 
 ## Self-heal (driver `error` = selector drift)
 ```
-error ∈ {no_modal, no_advance_button, stuck_on_step, step_limit_exceeded}?
+error ∈ {no_modal, no_advance_button, stuck_on_step, step_limit_exceeded, external_capture_failed}?
 ├── patches this run < 2 → read screenshots/<id>_error.png + <id>_error.html, diagnose,
 │                          patch SEL or the relevant function in linkedin.py, retry THIS job once.
 │                          ├── passes → append a dated bullet under
@@ -62,6 +62,7 @@ session — there's nothing left to "skip to".
 - **Scheduled:** end the run immediately. The report's first line is the `**BLOCKED:**` login
   instruction (see SKILL.md). Don't wait.
 - Never retry in a tight loop (retries accelerate account flagging).
+- Not a session block: an external subagent's `blocked` (see External applications).
 
 ## External applications
 `linkedin.py apply` returns `external` for non-Easy-Apply jobs; a subagent drives the employer
@@ -76,7 +77,10 @@ site per `ats-playbook.md`. Outcome → action:
 | `skip` `offsite: <host>` | left the allowed hosts: log, don't retry |
 | `skip` `driver: budget` / `driver: stuck <what>` | log, don't retry (generic driving failed on this site) |
 | `skip` `unknown required: <q>` | as "required field has no honest answer" above |
-| `skip` `job_closed`, `external disabled`, `external_capture_failed` (heal) | log, next candidate |
+| `skip` `job_closed`, `job_not_found`, `external disabled`, `dedup error` | log, next candidate |
+| `blocked` (subagent: CLI missing, profile locked, site outage) | external off for the rest of the run, report it; Easy Apply continues. Not a session block: don't end the run or ask for `linkedin.py login` |
+| `error` (subagent) | log `status:"error"`, next candidate |
+| `error` `external_capture_failed` (`linkedin.py`) | self-heal (above) |
 
 **Parking queue.** `job_engine/parked.md` holds `- [ ] <title> — <company> | <reason> | <url> |
 resume: <pdf> | answers: <json> (<id>, <date>)`. Scheduled runs only append. Interactive
@@ -84,9 +88,11 @@ preflight offers to finish them: see SKILL.md Preflight step 6.
 
 **Dedup (`ats_tools.py seen --id <id> [--url <url>]`).** A job is seen when its latest log line
 is `submitted` / `submit_unconfirmed` / `parked`, or its `skip_reason` starts with
-`disqualified`, `fit`, `offsite` or `driver:`; or its normalized external URL (query dropped)
-matches a submitted / submit_unconfirmed / parked job. `ready_for_review` and
-`unknown required: <q>` stay eligible (the latter once `<q>` is in `saved_answers`).
+`disqualified`, `fit`, `offsite` or `driver:`; or its normalized external URL (https, tracking
+params like `utm_*`/`ref`/`src` dropped, job params like `gh_jid` kept) matches a submitted /
+submit_unconfirmed / parked job. `ready_for_review` and `unknown required: <q>` stay eligible
+(the latter once `<q>` is in `saved_answers`). `seen` returning `status:"error"` → skip
+(`dedup error`); never apply on a failed check.
 
 ## Volume
 - Honor the N the user asked for. If `selection.max_per_run > 0`, never exceed it in one run
