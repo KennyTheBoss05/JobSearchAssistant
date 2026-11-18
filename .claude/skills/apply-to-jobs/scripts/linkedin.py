@@ -433,13 +433,22 @@ def _capture_external(page):
                 target = pi.value
             except PWTimeout:
                 pass  # same-tab navigation
+    # Redirect chains (/redir/ -> careers page -> ATS) pass through non-LinkedIn hops, so don't
+    # return the first one: wait for a known ATS, or for the URL to hold across 2 polls.
+    last, stable = None, 0
     for _ in range(20):
         try: target.wait_for_load_state("domcontentloaded", timeout=1000)
         except Exception: pass
-        if detect_ats(target.url)["ats"] != "linkedin" and target.url.startswith("http"):
-            return target.url
+        url = target.url
+        if url.startswith("http") and detect_ats(url)["ats"] != "linkedin":
+            if detect_ats(url)["ats"] != "unknown": return url
+            stable = stable + 1 if url == last else 0
+            last = url
+            if stable >= 2: return url  # custom career pages legitimately stay "unknown"
+        else:
+            last, stable = None, 0
         time.sleep(1)
-    return None
+    return last  # cap reached: last non-LinkedIn URL seen (None if never left LinkedIn)
 
 def cmd_apply(args):
     profile = {}
@@ -483,9 +492,12 @@ def cmd_apply(args):
             return done({"status": "error", "error": error, "screenshot": png, "html": str(html), **extra})
         if not easy:
             ext = re.compile(SEL["external_apply_name"], re.I)
-            if not (page.get_by_role("button", name=ext).count() or page.get_by_role("link", name=ext).count()):
-                return done({"status": "skip", "reason": "no_apply_button"})
-            url = _capture_external(page)
+            try:  # any Playwright error (closed page etc.) must still reach fail() so ctx closes
+                if not (page.get_by_role("button", name=ext).count() or page.get_by_role("link", name=ext).count()):
+                    return done({"status": "skip", "reason": "no_apply_button"})
+                url = _capture_external(page)
+            except Exception as e:
+                return fail("external_capture_failed", detail=str(e)[:300])
             if not url: return fail("external_capture_failed")
             return done({"status": "external", "url": url, **detect_ats(url)})
         page.locator(SEL["easy_apply_btn"]).first.click(); human_delay()
