@@ -80,8 +80,7 @@ site per `ats-playbook.md`. Outcome → action:
 
 **Parking queue.** `job_engine/parked.md` holds `- [ ] <title> — <company> | <reason> | <url> |
 resume: <pdf> | answers: <json> (<id>, <date>)`. Scheduled runs only append. Interactive
-preflight offers to finish them (subagent re-drives to the gate, the user clears it in the open
-window, the subagent submits; tick `- [x]`, log a new `submitted` line).
+preflight offers to finish them: see SKILL.md Preflight step 6.
 
 **Dedup (`ats_tools.py seen --id <id> [--url <url>]`).** A job is seen when its latest log line
 is `submitted` / `submit_unconfirmed` / `parked`, or its `skip_reason` starts with

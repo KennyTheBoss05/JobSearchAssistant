@@ -14,7 +14,10 @@ You never touch LinkedIn or the `linkedin.py` browser.
 
 ## 1. Role & inputs
 `job_id, title, company, external_url, ats, host, mode (review|auto), resume_pdf, cover_pdf|null,
-answers_file, max_actions, max_same_action_retries, allow_account_creation`.
+answers_file, max_actions, max_same_action_retries, allow_account_creation`, optional `gate_retry`
+(default false), `gate_cleared` (default false; always comes with `mode=auto`).
+- `gate_retry`: on reaching a gate return `parked` WITHOUT running `close` (the orchestrator has the user clear it in the open window).
+- `gate_cleared`: skip the opening `close`/`open`; start from `snapshot` of the current page, continue, submit and confirm, then `close` as usual.
 Run everything from the repo root. Python: `.venv/Scripts/python.exe`. Helpers:
 `.claude/skills/apply-to-jobs/scripts/{ats_tools,checks}.py` (JSON out, exit 0 even on error: read `status`).
 

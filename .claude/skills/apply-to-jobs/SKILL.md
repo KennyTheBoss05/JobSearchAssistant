@@ -51,9 +51,16 @@ A prompt containing "scheduled run" → **Scheduled mode** (below).
 5. If `external.enabled`: `ats_tools.py inbox --check`. `status:"error"` → pass
    `allow_account_creation:false` for this run and say so in the report.
 6. **Parked jobs (interactive only):** if `job_engine/parked.md` has unchecked `- [ ]` items,
-   offer to finish them. Per item: re-dispatch the ATS subagent (`mode=auto`, saved resume +
-   answers) to drive to the gate, Kevin clears it in the open window, the subagent submits;
-   tick `- [x]` and log a new `submitted` line.
+   offer to finish them. Per item:
+   1. Dispatch the external subagent with the item's url/resume/answers file, `mode=review`,
+      `gate_retry: true`. It re-drives to the gate, screenshots, and returns `parked` leaving
+      the `ats` session open.
+   2. Show the user the screenshot; ask them to clear the gate in the open browser window; wait
+      for their confirmation.
+   3. Re-dispatch with `gate_cleared: true`, `mode=auto`, same answers file. It continues from the
+      current page, submits, confirms, then closes the session.
+   4. `submitted`/`submit_unconfirmed` → tick `- [x]` and log a new line (becomes the job's latest
+      status). Anything else → leave unticked, log it.
 
 ## The loop (until N submitted, candidates exhausted, or quota hit)
 1. **Search** — subagent (**Haiku**): `linkedin.py search --query … --filters '<json>' --limit …`.
