@@ -52,6 +52,12 @@ which needs **Microsoft Word (Windows) or LibreOffice** — check one is present
 the user to install LibreOffice before they try to apply. The **pdf-processing** and **docx** skills are wired into this
 repo — use them for PDF text extraction and .docx work rather than hand-rolling parsers.
 
+External (non-Easy-Apply) applications also need **Node.js** and the pinned playwright-cli:
+`npm install -g @playwright/cli@0.1.23` (Windows PowerShell: `npm.cmd`). Optional: Gmail
+verification mail for site accounts — have the user create a Google app password (2-Step
+Verification on, then myaccount.google.com/apppasswords) and write `GMAIL_ADDRESS` (must equal
+`identity.email`) and `GMAIL_APP_PASSWORD` to `job_engine/.env`. Without it, account sites are parked.
+
 ### 3. Guided interview → profile.yaml
 Interview the user for every field in `profile.example.yaml`. Ask in small batches, citing
 why each matters for applications. **Demographics are optional and explicitly skippable.**

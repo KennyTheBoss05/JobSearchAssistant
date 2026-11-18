@@ -11,3 +11,6 @@ __pycache__/
 .jarvis/tasks/**/*.log
 .jarvis/chats/
 .planning/
+
+# playwright-cli daemon auto-snapshots
+.playwright-cli/

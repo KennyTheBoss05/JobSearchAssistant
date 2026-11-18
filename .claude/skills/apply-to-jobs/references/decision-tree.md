@@ -63,8 +63,31 @@ session — there's nothing left to "skip to".
   instruction (see SKILL.md). Don't wait.
 - Never retry in a tight loop (retries accelerate account flagging).
 
-## External-ATS redirect (v1)
-`no_easy_apply` → skip and move on. v2 handles external ATS.
+## External applications
+`linkedin.py apply` returns `external` for non-Easy-Apply jobs; a subagent drives the employer
+site per `ats-playbook.md`. Outcome → action:
+
+| Outcome | Action |
+|---|---|
+| `submitted` / `submit_unconfirmed` | log (counts toward quota) |
+| `parked` (`captcha`, `sms_verification`, `id_upload`, `video_interview`, `assessment`) | append to `job_engine/parked.md`, log `status=parked`; never solve or bypass |
+| `parked` `account_needs_email` | Gmail unavailable or verification mail never arrived: park; fix `.env` (`ats_tools.py inbox --check`) |
+| `parked` `account_exists` | site has an account whose password we don't hold and reset failed: park |
+| `skip` `offsite: <host>` | left the allowed hosts: log, don't retry |
+| `skip` `driver: budget` / `driver: stuck <what>` | log, don't retry (generic driving failed on this site) |
+| `skip` `unknown required: <q>` | as "required field has no honest answer" above |
+| `skip` `job_closed`, `external disabled`, `external_capture_failed` (heal) | log, next candidate |
+
+**Parking queue.** `job_engine/parked.md` holds `- [ ] <title> — <company> | <reason> | <url> |
+resume: <pdf> | answers: <json> (<id>, <date>)`. Scheduled runs only append. Interactive
+preflight offers to finish them (subagent re-drives to the gate, the user clears it in the open
+window, the subagent submits; tick `- [x]`, log a new `submitted` line).
+
+**Dedup (`ats_tools.py seen --id <id> [--url <url>]`).** A job is seen when its latest log line
+is `submitted` / `submit_unconfirmed` / `parked`, or its `skip_reason` starts with
+`disqualified`, `fit`, `offsite` or `driver:`; or its normalized external URL (query dropped)
+matches a submitted / submit_unconfirmed / parked job. `ready_for_review` and
+`unknown required: <q>` stay eligible (the latter once `<q>` is in `saved_answers`).
 
 ## Volume
 - Honor the N the user asked for. If `selection.max_per_run > 0`, never exceed it in one run

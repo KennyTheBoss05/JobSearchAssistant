@@ -16,7 +16,8 @@ The driver fills every field it can from `answers.json` + `profile.yaml` heurist
 | `needs_answers` | hit required field(s) with no known answer | answer each via the qa_answer subagent (grounded in evidence); append answerable ones to `answers.json`; re-invoke `apply` |
 | `submitted` | full-auto submitted; screenshot saved | log success |
 | `ready_for_review` | review-mode stopped at Submit; review screenshot saved | show user the screenshot + planned answers; on approval re-run `--mode auto` |
-| `skip` / `no_easy_apply` | not an Easy Apply job (external ATS) | log skip; next candidate (v1 doesn't do external) |
+| `external` | not Easy Apply; payload has `url`, `ats`, `host`, `tenant`, `job_url` (capture continues past LinkedIn's "Share your profile?" dialog) | external branch in SKILL.md (`ats-playbook.md`) |
+| `skip` / `no_apply_button` | no Apply control (closed job) | log skip; next candidate |
 | `blocked` / `not_logged_in` | session-level wall | notify + pause (see decision-tree) |
 | `error` (`no_modal`, `no_advance_button`, `stuck_on_step` + `modal_text`, `step_limit_exceeded`) | DOM/selector drift; payload has `screenshot` + `html` (`screenshots/<id>_error.{png,html}`) | self-heal: read both, patch `SEL`/the function in linkedin.py, retry that job once (see decision-tree) |
 | `error` (`resume_not_attached`) | tailored PDF wasn't the selected resume; nothing submitted | skip the job — safety guard, never self-healed |

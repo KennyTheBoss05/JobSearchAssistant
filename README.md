@@ -1,6 +1,6 @@
 # JobSearchAssistant
 
-Claude Code skills that tailor your resume and cover letter per job and apply on LinkedIn (Easy Apply) for you.
+Claude Code skills that tailor your resume and cover letter per job and apply on LinkedIn (Easy Apply) and on employer sites for you.
 
 > The older Streamlit RAG app (JobBot.py) lives on the `JobBot` branch.
 
@@ -9,6 +9,7 @@ Claude Code skills that tailor your resume and cover letter per job and apply on
 - [Claude Code](https://claude.com/claude-code)
 - Python 3.11
 - A LinkedIn account
+- **External applications:** Node.js and `npm install -g @playwright/cli@0.1.23` (Windows PowerShell: `npm.cmd`).
 - **PDF export of resumes/cover letters:** Microsoft Word (Windows) or [LibreOffice](https://www.libreoffice.org/) (any OS). Used by `.claude/skills/apply-to-jobs/scripts/docx_to_pdf.py`.
 
 ## Setup
@@ -31,6 +32,13 @@ Open the repo in Claude Code, then:
 3. **Tune behavior (optional):** e.g. *"make my answers more formal"* or *"be pickier about which jobs to apply to"*. This runs `tune-job-engine`.
 
 Hard rule: the skills never invent experience. Tailoring and answers only reframe facts from your resume and the evidence file built during setup. `checks.py` enforces it: tailored documents and free-text answers with numbers, tools or names not found in your documents are revised or the job is skipped.
+
+### External applications
+
+Jobs without Easy Apply are applied for on the employer's site (Greenhouse, Lever, Ashby, Workday, custom pages) by a Claude subagent driving `playwright-cli`. Capturing the external link continues past LinkedIn's "Share your profile?" prompt. Expect roughly 5-10 minutes and noticeably more Claude usage per external application. Config: `external:` in `job_engine/engine_config.yaml`.
+
+- **Parked jobs:** CAPTCHAs, SMS codes, ID upload, video interviews and assessments are never bypassed. Those jobs go to `job_engine/parked.md`; the next interactive run offers to finish them while you clear the gate.
+- **Accounts:** sites that need one get an account (credentials in `job_engine/accounts.json`). Verification emails are read from Gmail: create a Google app password (2-Step Verification on, then myaccount.google.com/apppasswords) and add `GMAIL_ADDRESS` (same as your profile email) and `GMAIL_APP_PASSWORD` to `job_engine/.env`. Check with `ats_tools.py inbox --check`. Without it, those jobs are parked.
 
 ### Unattended / scheduled runs
 

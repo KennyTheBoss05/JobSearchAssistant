@@ -27,6 +27,7 @@ user can shape behavior without touching any code or re-onboarding. Everything l
 | Be pickier/looser about which jobs to apply to; change the daily cap | `engine_config.yaml → selection.fit_floor`, `rank_by_fit`, `max_per_run`, `max_per_day` |
 | Change my autorun searches / time / days | `engine_config.yaml → autorun`, then re-run `.venv\Scripts\python.exe .claude/skills/apply-to-jobs/scripts/autorun.py install` (schedule changes only take effect after install) |
 | Stop a true term being flagged by the grounding check | add the fact to `evidence.md` (preferred) or a pure synonym to `grounding.allow_terms` |
+| Turn external applications on/off, change step budgets, skip a site, stop account creation | `engine_config.yaml → external` |
 | Slow down / speed up, change delays | `engine_config.yaml → pacing` |
 | Lock/unlock skills or areas of interest; change resume page count, coverage targets, project-edit limits | `engine_config.yaml → resume` |
 | Change cover-letter length, standout-bullet count, company placeholder, coverage targets | `engine_config.yaml → cover_letter` |

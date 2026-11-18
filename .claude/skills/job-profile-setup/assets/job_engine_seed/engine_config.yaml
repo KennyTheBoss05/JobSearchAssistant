@@ -10,6 +10,14 @@ selection:
   max_per_run: 0           # 0 = no cap (honor the N the user asks for). >0 enforces a ceiling.
   max_per_day: 30          # cross-run cap on submitted applications per local day; 0 = unlimited
 
+# ---- External applications (employer sites reached from LinkedIn) -------
+external:
+  enabled: true                  # false = skip non-Easy-Apply jobs
+  max_actions_per_app: 80        # click/fill/upload budget per application before giving up
+  max_same_action_retries: 2     # same failing action this many times = stuck
+  allow_account_creation: true   # create site accounts (verification mail read via Gmail)
+  skip_hosts: []                 # hosts to never apply on, e.g. ["jobs.example.com"]
+
 # ---- Pacing (human-like; reduces LinkedIn bot-flagging) -----------------
 pacing:
   min_action_delay_sec: 1.5
@@ -76,5 +84,5 @@ autorun:
   searches:                          # each search submits up to `count` applications
     - query: "AI Engineer"
       geoId: 101165590               # UK
-      filters: {f_AL: true, f_TPR: r86400}   # Easy Apply only, posted in last 24h
+      filters: {f_TPR: r86400}   # posted in last 24h (Easy Apply + external)
       count: 10
