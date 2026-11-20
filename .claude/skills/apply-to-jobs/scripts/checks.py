@@ -10,6 +10,9 @@ object; exit code is 0 even on "fail" (callers read the JSON).
   pdf     --pdf <path> [--pages N]
           -> {"status":"ok","pages":n} | {"status":"fail","problems":[...]}
   quota   -> {"submitted_today":k,"max_per_day":m,"remaining":r|null}
+  doctor  -> {"status":"ok"|"fail","failed":[{check,detail,fix}],"warnings":[...]}
+          Environment preflight (stdlib-only, so it runs even with nothing installed):
+          repo layout, Python, pinned packages, Chromium, Word/LibreOffice, playwright-cli.
   selftest
 """
 from __future__ import annotations
@@ -158,6 +161,93 @@ def cmd_quota(a=None):
                 k += 1
     return {"submitted_today": k, "max_per_day": cap, "remaining": None if not cap else max(cap - k, 0)}
 
+# ----------------------------------------------------------------------------- doctor
+ROOT = HERE.parents[4]  # scripts -> apply-to-jobs -> skills -> .claude -> repo root
+
+def _pins(req: Path) -> dict:
+    return dict(l.split("==", 1) for l in (s.strip() for s in req.read_text(encoding="utf-8").splitlines())
+                if l and not l.startswith("#") and "==" in l)
+
+def cmd_doctor(a=None):
+    import importlib.metadata as md, os, shutil, subprocess
+    failed, warnings = [], []
+    def fail(check, detail, fix):
+        failed.append({"check": check, "detail": detail, "fix": fix})
+    win = os.name == "nt"
+    py = r".venv\Scripts\python.exe" if win else ".venv/bin/python"
+    venv_fix = (f'cd "{ROOT}" && python3.11 -m venv .venv && {py} -m pip install -r requirements.txt'
+                f" && {py} -m playwright install chromium"
+                + (" (no python3.11? brew install python@3.11)" if sys.platform == "darwin" else ""))
+
+    # 1. A standalone checkout: the skills must sit in this repo, next to requirements.txt.
+    req = ROOT / "requirements.txt"
+    skills = [ROOT / ".claude" / "skills" / s for s in ("job-profile-setup", "apply-to-jobs", "tune-job-engine")]
+    if not req.exists() or not all(s.is_dir() for s in skills):
+        fail("repo", f"{ROOT} is not a full JobSearchAssistant checkout (skills were copied elsewhere?)",
+             "git clone the repo into its own folder and open THAT folder in Claude Code / VS Code")
+        return {"status": "fail", "failed": failed, "warnings": warnings}
+    if Path.cwd().resolve() != ROOT.resolve():
+        warnings.append(f"cwd is {Path.cwd()}, not the repo root {ROOT}: open the repo folder itself in "
+                        "Claude Code, not a parent folder or another project")
+
+    # 2. Python + venv.
+    if sys.version_info[:2] != (3, 11):
+        fail("python", f"Python {sys.version.split()[0]}; this project pins 3.11", venv_fix)
+    if sys.prefix == sys.base_prefix:
+        fail("venv", f"not running inside a virtualenv ({sys.executable})", venv_fix)
+
+    # 3. Pinned packages at the pinned versions (same versions = same behavior as the author's machine).
+    for name, want in _pins(req).items():
+        try:
+            have = md.version(name)
+        except md.PackageNotFoundError:
+            fail(name, "not installed", f"{py} -m pip install -r requirements.txt"); continue
+        if have != want:
+            fail(name, f"{have} installed, {want} pinned", f"{py} -m pip install -r requirements.txt")
+
+    # 4. Playwright's bundled Chromium (linkedin.py's fallback browser).
+    if not any(f["check"] == "playwright" for f in failed):
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as p:
+                exe = p.chromium.executable_path
+            if not Path(exe).exists():
+                fail("chromium", f"Playwright Chromium missing at {exe}", f"{py} -m playwright install chromium")
+        except Exception as e:
+            fail("chromium", f"Playwright could not start: {str(e)[:200]}", f"{py} -m playwright install chromium")
+
+    # 5. docx -> PDF engine (same lookup as docx_to_pdf.py).
+    sys.path.insert(0, str(HERE.parent))
+    from docx_to_pdf import find_soffice
+    word = False
+    if win:
+        try:
+            import winreg
+            winreg.CloseKey(winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, "Word.Application"))
+            word = True
+        except OSError:
+            pass
+    if not word and not find_soffice():
+        fail("pdf-engine", "neither Microsoft Word (Windows) nor LibreOffice found",
+             "install LibreOffice: https://www.libreoffice.org/download/"
+             + (" (macOS: brew install --cask libreoffice)" if sys.platform == "darwin" else ""))
+
+    # 6. External (non-Easy-Apply) applications: optional, so warnings only.
+    cli = shutil.which("playwright-cli")
+    if not cli:
+        warnings.append("playwright-cli not found: external applications will be off. Fix: install Node.js, then "
+                        + ("npm.cmd" if win else "npm") + " install -g @playwright/cli@0.1.23")
+    else:
+        try:
+            v = subprocess.run([cli, "--version"], capture_output=True, text=True, timeout=30).stdout.strip()
+            if "0.1.23" not in v:
+                warnings.append(f"playwright-cli {v or '?'} installed, 0.1.23 pinned: "
+                                + ("npm.cmd" if win else "npm") + " install -g @playwright/cli@0.1.23")
+        except Exception as e:
+            warnings.append(f"playwright-cli --version failed: {e}")
+
+    return {"status": "fail" if failed else "ok", "failed": failed, "warnings": warnings}
+
 # ----------------------------------------------------------------------------- selftest
 def cmd_selftest(a=None):
     corpus = "Built RAG pipelines in Python with LangChain at Acme Corp. Improved recall by 12% over 3 years."
@@ -167,6 +257,7 @@ def cmd_selftest(a=None):
     assert unsupported("I am excited to join Formula. as an engineer", corpus, ["Formula."]) == []
     assert unsupported("Shipped Node.js and C++ services for 3+ years", corpus) == ["Node.js", "C++"]
     assert unsupported("Grew revenue to £1,200 at Acme", corpus + " 1200") == []
+    assert _pins(ROOT / "requirements.txt").get("playwright"), "requirements.txt pins not parsed"
     return {"status": "ok"}
 
 def main():
@@ -175,9 +266,10 @@ def main():
     c = sub.add_parser("claims")
     c.add_argument("--file"); c.add_argument("--text"); c.add_argument("--allow", action="append")
     p = sub.add_parser("pdf"); p.add_argument("--pdf", required=True); p.add_argument("--pages", type=int)
-    sub.add_parser("quota"); sub.add_parser("selftest")
+    sub.add_parser("quota"); sub.add_parser("doctor"); sub.add_parser("selftest")
     a = ap.parse_args()
-    out = {"claims": cmd_claims, "pdf": cmd_pdf, "quota": cmd_quota, "selftest": cmd_selftest}[a.cmd](a)
+    out = {"claims": cmd_claims, "pdf": cmd_pdf, "quota": cmd_quota, "doctor": cmd_doctor,
+           "selftest": cmd_selftest}[a.cmd](a)
     print(json.dumps(out, ensure_ascii=False))
 
 if __name__ == "__main__":

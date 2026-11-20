@@ -26,11 +26,15 @@ the seed on first run (never overwriting tuned files), so the suite is self-cont
 - **[apply-to-jobs](.claude/skills/apply-to-jobs/SKILL.md)** — autonomous applier (LinkedIn Easy Apply + external sites). Orchestrator drives the browser ([linkedin.py](.claude/skills/apply-to-jobs/scripts/linkedin.py)); subagents (Haiku=scrape, Sonnet=fit/answers, Opus=resume) do text reasoning. `--mode review|auto`. Site rotation pending.
   - **Unattended/scheduled:** auto mode skips + queues unknown questions to `job_engine/pending_questions.md`, self-heals selector drift (≤2 patches/run, uncommitted), writes `job_engine/reports/`. [autorun.py](.claude/skills/apply-to-jobs/scripts/autorun.py) `install|run|status|uninstall` = schtasks/cron → headless `claude -p "...scheduled run."`.
   - **External path (non-Easy-Apply):** `linkedin.py apply` returns `external` → a Sonnet subagent drives the employer site via `playwright-cli` per [ats-playbook.md](.claude/skills/apply-to-jobs/references/ats-playbook.md); helpers in [ats_tools.py](.claude/skills/apply-to-jobs/scripts/ats_tools.py) (`detect|seen|account|inbox`); human-only gates land in `job_engine/parked.md`; config `external:`. Needs Node + `@playwright/cli@0.1.23`; Gmail app password in `job_engine/.env` for account verification.
-  - **Gates:** [checks.py](.claude/skills/apply-to-jobs/scripts/checks.py) `claims` (token-level grounding vs masters + evidence + profile), `pdf` (page count + contact info), `quota` (`selection.max_per_day`), `selftest`.
+  - **Gates:** [checks.py](.claude/skills/apply-to-jobs/scripts/checks.py) `doctor` (stdlib-only env preflight: repo layout, Python 3.11, pinned pkgs, Chromium, Word/LibreOffice, playwright-cli — preflight step 0 of both setup and apply), `claims` (token-level grounding vs masters + evidence + profile), `pdf` (page count + contact info), `quota` (`selection.max_per_day`), `selftest`.
 - **[tune-job-engine](.claude/skills/tune-job-engine/SKILL.md)** — edit tailoring/answer/selection/pacing behavior via the runtime `job_engine/engine_config.yaml` + `job_engine/prompts/` (defaults: the seed above).
 
-Hard rule across all three: **never fabricate** — tailoring/answers only reframe true facts
-from resume + `evidence.md`.
+Hard rules across all three: **never fabricate** — tailoring/answers only reframe true facts
+from resume + `evidence.md`. **Never build a substitute** — if a script or `checks.py doctor`
+fails, stop and report the fix; don't write a new applier/answer bank/session store.
+
+**Other machines:** the venv python is `.venv\Scripts\python.exe` on Windows, `.venv/bin/python`
+on macOS/Linux. The Windows-specific notes below (uv, Word COM, exec policy) are Kevin's machine.
 
 Task backlog: [.jarvis/TASKS.md](.jarvis/TASKS.md).
 

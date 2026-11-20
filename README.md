@@ -10,18 +10,23 @@ Claude Code skills that tailor your resume and cover letter per job and apply on
 - Python 3.11
 - A LinkedIn account
 - **External applications:** Node.js and `npm install -g @playwright/cli@0.1.23` (Windows PowerShell: `npm.cmd`).
-- **PDF export of resumes/cover letters:** Microsoft Word (Windows) or [LibreOffice](https://www.libreoffice.org/) (any OS). Used by `.claude/skills/apply-to-jobs/scripts/docx_to_pdf.py`.
+- **PDF export of resumes/cover letters:** Microsoft Word (Windows) or [LibreOffice](https://www.libreoffice.org/) (any OS; **required on macOS**, e.g. `brew install --cask libreoffice`). Used by `.claude/skills/apply-to-jobs/scripts/docx_to_pdf.py`.
 
 ## Setup
 
+**Use this repo as its own project.** Clone it into its own folder and open *that* folder in Claude Code (`cd JobSearchAssistant && claude`, or VS Code → File → Open Folder). Don't copy `.claude/` into another project or open a parent folder: Claude then follows that project's instructions instead of these skills, and the scripts can't find their files.
+
 ```bash
-python -m venv .venv
+git clone https://github.com/KennyTheBoss05/JobSearchAssistant.git
+cd JobSearchAssistant
+python3.11 -m venv .venv          # Windows: py -3.11 -m venv .venv
 # Windows:      .venv\Scripts\python.exe -m pip install -r requirements.txt
 # macOS/Linux:  .venv/bin/python -m pip install -r requirements.txt
 # then:         <venv python> -m playwright install chromium
+<venv python> .claude/skills/apply-to-jobs/scripts/checks.py doctor   # must print "status": "ok"
 ```
 
-The setup skill also runs these if you skip them.
+`doctor` checks the repo layout, Python 3.11, the pinned package versions, Chromium, Word/LibreOffice and (optionally) `playwright-cli`, and prints the fix for anything missing. Both the setup and apply skills run it first and stop if it fails.
 
 ## Using the skills
 

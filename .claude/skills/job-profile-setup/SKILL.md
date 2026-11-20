@@ -43,13 +43,16 @@ into `job_engine/` and creates the runtime subdirs (`masters/`, `outputs/`, `scr
 parts they want to (re)do. If only the seeded files are present, this is a first run.
 
 ### 2. Ensure dependencies (cross-platform)
-`apply-to-jobs` needs Playwright. Detect the interpreter (prefer `.venv`), then:
-`python -m pip install -r requirements.txt && python -m playwright install chromium`
-(no `requirements.txt`? install `playwright pyyaml python-docx pdfplumber` directly).
-On Windows call the venv python directly (`.venv\Scripts\python.exe`) to avoid the PowerShell
-`.ps1` execution-policy block. Resume PDFs are rendered by `apply-to-jobs/scripts/docx_to_pdf.py`,
-which needs **Microsoft Word (Windows) or LibreOffice** — check one is present and, if not, tell
-the user to install LibreOffice before they try to apply. The **pdf-processing** and **docx** skills are wired into this
+Run the environment check (stdlib-only, so any `python3` works before the venv exists):
+`python .claude/skills/apply-to-jobs/scripts/checks.py doctor`
+For each `failed[]` item, run its `fix` (ask first for system installs like LibreOffice or
+Python), then re-run doctor with the venv python (`.venv\Scripts\python.exe` on Windows — avoids
+the PowerShell `.ps1` block; `.venv/bin/python` on macOS/Linux) until `status:"ok"`. Do not
+continue setup while it fails, and never swap in other packages or versions than
+`requirements.txt` pins. A `repo` failure means the skills were copied into another project:
+stop and tell the user to clone this repo into its own folder and open that folder.
+Resume PDFs need **Microsoft Word (Windows) or LibreOffice** (macOS: always LibreOffice). The
+**pdf-processing** and **docx** skills are wired into this
 repo — use them for PDF text extraction and .docx work rather than hand-rolling parsers.
 
 External (non-Easy-Apply) applications also need **Node.js** and the pinned playwright-cli:

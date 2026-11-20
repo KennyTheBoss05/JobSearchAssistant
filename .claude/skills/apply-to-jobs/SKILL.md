@@ -25,10 +25,11 @@ Read `references/easy-apply-playbook.md` (driver contract, UI notes) and
 `references/decision-tree.md` (skip / queue / pause / self-heal rules) before the first
 application in a run. Read `references/ats-playbook.md` before the first external application.
 
-Scripts (in `.claude/skills/apply-to-jobs/scripts/`; on Windows run with `.venv\Scripts\python.exe`):
+Scripts (in `.claude/skills/apply-to-jobs/scripts/`; run with the repo venv: `.venv\Scripts\python.exe`
+on Windows, `.venv/bin/python` on macOS/Linux):
 - `linkedin.py <check|login|search|apply>` — browser driver.
 - `ats_tools.py <detect|seen|account|inbox|selftest>` — external-site helpers (ATS detect, dedup, accounts, Gmail codes).
-- `checks.py <claims|pdf|quota>` — deterministic gates (grounding, PDF sanity, daily cap).
+- `checks.py <doctor|claims|pdf|quota>` — environment preflight + deterministic gates (grounding, PDF sanity, daily cap).
 - `docx_to_pdf.py <docx> <pdf>` — Word COM / LibreOffice export.
 - `autorun.py <run|install|uninstall|status>` — scheduler (see Scheduling).
 
@@ -39,6 +40,10 @@ defaults to **review** unless the user says auto / full-auto / "just apply" / "d
 A prompt containing "scheduled run" → **Scheduled mode** (below).
 
 ## Preflight
+0. `checks.py doctor` (with the venv python; no venv yet → run it with any `python3`, it is
+   stdlib-only). `status:"fail"` → stop. Interactive: show each `failed[].fix` and offer to run
+   them (or run **job-profile-setup**), then re-run doctor. Scheduled: end the run, report the
+   failures. Never work around a failed check. Pass `warnings` on to the user.
 1. `job_engine/profile.yaml`, `evidence.md`, `masters/resume_base.docx` exist — else stop and
    tell the user to run **job-profile-setup**.
 2. `checks.py quota` — if `remaining == 0`, report and stop.
@@ -173,6 +178,10 @@ lock (`job_engine/.autorun.lock`, 6 h) and appends output to `job_engine/reports
 - `autorun.py status` / `uninstall` / `run` (run once now).
 
 ## Hard guardrails
+- **Use this suite, never a substitute.** Apply only through the scripts above. Never write a
+  new applier, answer bank, session store or scraper in its place, even if a script is missing
+  or fails. A failed preflight or missing dependency → stop and report the fix. The only code
+  changes allowed are self-heal patches to these scripts (`references/decision-tree.md`).
 - **Never fabricate.** Answers/tailoring only reframe true facts from resume + evidence +
   profile, enforced by `checks.py claims`. No honest answer → skip (auto) or queue (review).
 - **Dedup** via `ats_tools.py seen`; never apply to the same job twice.
